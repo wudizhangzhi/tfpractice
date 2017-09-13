@@ -1,11 +1,17 @@
 # encoding: utf-8
 from __future__ import print_function
 
+import random
 import time
+import os
+
+from captcha.image import ImageCaptcha
 from six.moves import xrange
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
+
 
 '''
 0.input parameter
@@ -23,7 +29,7 @@ import matplotlib.pyplot as plt
 config = {
     'data': '../X_train_color.npy',
     'label': '../y_train_color.npy',
-    'NUM_EPOCHS': 5,
+    'NUM_EPOCHS': 2,
     'IMG_HEIGHT': 60,
     'IMG_WIDTH': 60,
     'CHANNEL': 3,
@@ -32,15 +38,15 @@ config = {
     'KEEP_PROB': 0.5,
     'NUM_LABEL': 10,
     'FREQUENCY': 50,  # 每隔多少部打印，执行
-    'LR': 1e-5,  # learning rate
-    'DECAY_RATE': 0.7,  # 衰减率
+    'LR': 1e-4,  # learning rate
+    'DECAY_RATE': 0.5,  # 衰减率
     'ONE_HOT': True,
     'LOG_DIR': 'logs/tarin',
-    'SAVE_DIR': 'logs/my_model',
+    'SAVE_DIR': 'logs/model.ckpt-998',  # logs/model.ckpt
 }
 
 
-def plotrandom(images, labels, num=8, image_size=28, channel=1):
+def plotrandom(images, labels, num=8, image_size=28, channel=1, one_hot=True):
     for i in range(num):
         index = np.random.randint(len(images))
         plt.subplot(2, 4, i + 1)
@@ -51,10 +57,30 @@ def plotrandom(images, labels, num=8, image_size=28, channel=1):
             plt.imshow(images[index].reshape(image_size, image_size, channel),
                        interpolation='nearest')
         # plt.title('Training: %s' % labels[index].tolist().index(1))
-        plt.title('Prediction: %s' % np.argmax(labels[index, :]))
+        if one_hot:
+            plt.title('Prediction: %s' % np.argmax(labels[index, :]))
+        else:
+            plt.title('Prediction: %s' % np.argmax(labels[index]))
     # plt.ion()
     plt.show()
 
+
+def plotimages(images, labels, image_size=28, channel=1, one_hot=True):
+    num = len(images)
+    for i in range(num):
+        plt.subplot(2, num//2, i + 1)
+        plt.axis('off')
+        if channel == 1:
+            plt.imshow(images[i].reshape(image_size, image_size), cmap=plt.cm.gray_r, interpolation='nearest')
+        else:
+            plt.imshow(images[i].reshape(image_size, image_size, channel),
+                       interpolation='nearest')
+        # plt.title('Training: %s' % labels[index].tolist().index(1))
+        if one_hot:
+            plt.title('Prediction: %s' % np.argmax(labels[i, :]))
+        else:
+            plt.title('Prediction: %s' % labels[i])
+    plt.show()
 
 class Captcha:
     def __init__(self, img_height=20, img_width=20, channel=3, num_epochs=1, batch_size=100, validation=64):
@@ -86,14 +112,16 @@ class Captcha:
         self.DECAY_RATE = config.get('DECAY_RATE', 0.9)
         self.ONE_HOT = config.get('ONE_HOT', True)
         self.LOG_DIR = config.get('LOG_DIR', 'logs/')
-        self.SAVE_DIR = config.get('SAVE_DIR', 'logs/')
+        self.SAVE_DIR = config.get('SAVE_DIR', 'logs/model/')
         print('==== reading train data =====')
         self.DATA = np.load(config.get('data'))
         self.LABEL = np.load(config.get('label'))
 
         if tf.gfile.Exists(self.LOG_DIR):
             tf.gfile.DeleteRecursively(self.LOG_DIR)
-        tf.gfile.MakeDirs(self.LOG_DIR)
+        dirpath = os.path.dirname(self.LOG_DIR)
+        print('create save path: %s' % dirpath)
+        tf.gfile.MakeDirs(dirpath)
         # self.load_train_data(data, label)
 
     def model(self, data, is_train=False):
@@ -182,9 +210,9 @@ class Captcha:
         self.bias_fc3 = tf.Variable(tf.constant(0.1, shape=[self.NUM_LABEL], dtype=tf.float32), name='bias_fc2')
         # self.bias_fc3 = tf.Variable(tf.constant(0.001, shape=[self.NUM_LABEL], dtype=tf.float32), name='bias_fc3')
 
-    def conv2d_layer(self, input, in_channel, out_channel, name='', reuse=False):
+    def conv2d_layer(self, input, in_channel, out_channel, name='', reuse=False, wd=None):
         with tf.variable_scope(name, reuse=reuse) as scope:
-        # with tf.name_scope(name):
+            # with tf.name_scope(name):
             stddev = 1.0 / tf.sqrt(tf.cast(tf.reduce_prod(input.shape[1:]), tf.float32))
             # stddev = 0.1
             initializer = tf.truncated_normal_initializer(stddev=stddev, dtype=tf.float32)
@@ -193,6 +221,7 @@ class Captcha:
                                 initializer=initializer,
                                 )
             initializer = tf.constant_initializer(0.1)
+            # initializer = tf.zeros_initializer()
             bias = tf.get_variable('bias',
                                    shape=[out_channel],
                                    dtype=tf.float32,
@@ -202,6 +231,12 @@ class Captcha:
             relu = tf.nn.relu(tf.nn.bias_add(conv, bias), name='relu')
             pool = tf.nn.max_pool(relu, ksize=[1, 3, 3, 1], strides=[1, 2, 2, 1], padding='SAME', name='pool')
 
+            if wd is not None:
+                weight_decay = tf.multiply(tf.nn.l2_loss(pool), wd, name='weight_loss')
+                bias_decay = tf.multiply(tf.nn.l2_loss(W), wd, name='bias_loss')
+                tf.add_to_collection('losses', weight_decay)
+                tf.add_to_collection('losses', bias_decay)
+
             tf.summary.histogram('W', W)
             tf.summary.histogram('bias', bias)
             tf.summary.histogram('conv', conv)
@@ -209,9 +244,9 @@ class Captcha:
             tf.summary.histogram('pool', pool)
         return pool
 
-    def fc_layer(self, input, in_channel, out_channel, name='', relu=True, reuse=False):
+    def fc_layer(self, input, in_channel, out_channel, name='', relu=True, reuse=False, wd=None):
         with tf.variable_scope(name, reuse=reuse) as scope:
-        # with tf.name_scope(name):
+            # with tf.name_scope(name):
             stddev = 1.0 / tf.sqrt(tf.cast(tf.reduce_prod(input.shape[1:]), tf.float32))
             # stddev = 0.1
             initializer = tf.truncated_normal_initializer(stddev=stddev, dtype=tf.float32)
@@ -220,6 +255,7 @@ class Captcha:
                                 initializer=initializer
                                 )
             initializer = tf.constant_initializer(0.1)
+            # initializer = tf.zeros_initializer()
             bias = tf.get_variable('bias',
                                    shape=[out_channel],
                                    dtype=tf.float32,
@@ -228,6 +264,12 @@ class Captcha:
             logits = tf.nn.bias_add(tf.matmul(input, W), bias, name='logits')
             if relu:
                 logits = tf.nn.relu(logits, name='fc')
+
+            if wd is not None:
+                weight_decay = tf.multiply(tf.nn.l2_loss(W), wd, name='weight_loss')
+                bias_decay = tf.multiply(tf.nn.l2_loss(W), wd, name='bias_loss')
+                tf.add_to_collection('losses', weight_decay)
+                tf.add_to_collection('losses', bias_decay)
 
             tf.summary.histogram('W', W)
             tf.summary.histogram('bias', bias)
@@ -244,11 +286,12 @@ class Captcha:
         # reshape
         out_channel = self.IMG_HEIGHT // 4 * self.IMG_WIDTH // 4 * 64
         data_conv2 = tf.reshape(data_conv2, [-1, out_channel])
-        data_fc1 = self.fc_layer(data_conv2, in_channel=out_channel, out_channel=512, name='fc1', reuse=reuse)
+        data_fc1 = self.fc_layer(data_conv2, in_channel=out_channel, out_channel=512, name='fc1', reuse=reuse, wd=0.004)
         # ==== fc2 ====
-        data_fc2 = self.fc_layer(data_fc1, in_channel=512, out_channel=512, name='fc2', reuse=reuse)
+        data_fc2 = self.fc_layer(data_fc1, in_channel=512, out_channel=1024, name='fc2', reuse=reuse, wd=0.004)
         # ==== fc3 =====
-        logits = self.fc_layer(data_fc2, in_channel=512, out_channel=self.NUM_LABEL, name='fc3', relu=False, reuse=reuse)
+        logits = self.fc_layer(data_fc2, in_channel=1024, out_channel=self.NUM_LABEL, name='fc3', relu=False,
+                               reuse=reuse)
         if is_train:
             logits = tf.nn.dropout(logits, keep_prob=self.KEEP_PROB)
         return logits
@@ -257,12 +300,13 @@ class Captcha:
         with tf.name_scope('compute_loss'):
             cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels, name='cross_entropy')
             loss = tf.reduce_mean(cross_entropy, name='loss')
-            tf.summary.scalar('loss', loss)
+            tf.add_to_collection('losses', loss)
+            total_loss = tf.add_n(tf.get_collection('losses'), name='total_loss')
+            tf.summary.scalar('loss', total_loss)
             tf.summary.histogram('cross_entropy', cross_entropy)
-        return loss
+        return total_loss
 
     def main(self):
-        #
         # shuffle data
         data_size = self.DATA.shape[0]
         sample_index = np.random.choice(data_size, data_size)
@@ -383,6 +427,7 @@ class Captcha:
                     summary_part = sess.run(merged, feed_dict=feed_dict)
                     writer_train.add_summary(summary_part, step)
 
+            # tf.gfile.MakeDirs(self.SAVE_DIR)
             saver.save(sess, self.SAVE_DIR, global_step=batch)
 
     def train(self):
@@ -544,10 +589,118 @@ class Captcha:
         self.ONE_HOT = False
         self.train()
 
+    def delete_old_log(self):
+        print('==== delete old log ====')
+        if tf.gfile.Exists(self.LOG_DIR):
+            tf.gfile.DeleteRecursively(self.LOG_DIR)
+        tf.gfile.MakeDirs(self.LOG_DIR)
+
+    def predict(self, images):
+
+        with tf.Session() as sess:
+            shape = [-1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL]
+            images = images.reshape(shape)
+            input_data = tf.placeholder(shape=images.shape, dtype=tf.float32)
+            prediction = tf.nn.softmax(self.inference(input_data, is_train=False))
+
+            prediction_label = tf.argmax(prediction, axis=1)
+            saver = tf.train.Saver()
+            saver.restore(sess, self.SAVE_DIR)
+
+            prediction_label_index = sess.run(prediction_label, feed_dict={input_data: images})
+
+        return prediction_label_index
+
+    def predict_from_dir(self, dirname):
+        filelist = os.listdir(dirname)
+        img_array = None
+        image_shape = None
+        for filename in filelist:
+            filepath = os.path.join(dirname, filename)
+            img = np.array(Image.open(filepath), dtype='float32')
+            image_shape = img.shape
+            img = img.reshape([1, np.prod(image_shape)])
+            if img_array is None:
+                img_array = img
+            else:
+                img_array = np.vstack((img_array, img))
+        # img_array = img_array.reshape([-1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL])
+        predictions = self.predict(img_array)
+        plotimages(img_array.reshape([-1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL]), predictions,
+                   image_size=image_shape[1], channel=3, one_hot=False)
+
+    def test_model_form_file(self, test_X, test_label):
+        X_test = np.load(test_X)
+        label_test = np.load(test_label)
+        test_size = len(label_test)
+        X_test = X_test.reshape([-1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL])
+
+        input_data = tf.placeholder(shape=X_test.shape, dtype=tf.float32)
+        label_batch = tf.placeholder(shape=label_test.shape, dtype=tf.float32)
+        with tf.Session() as sess:
+            prediction = tf.nn.softmax(self.inference(input_data, is_train=False))
+            accuracy = self.compute_accuracy(prediction, label_batch)
+            saver = tf.train.Saver()
+            saver.restore(sess, self.SAVE_DIR)
+            test_accuracy = sess.run(accuracy, feed_dict={input_data: X_test, label_batch: label_test})
+            print('===== accuracy: %0.2f =====' % test_accuracy)
+
+    def predict_one_image_from_file(self, image):
+        input = np.loads(image)
+
+        X_input = input.reshape([1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL])
+
+        input_data = tf.placeholder(shape=X_input.shape, dtype=tf.float32)
+        with tf.Session() as sess:
+            prediction = tf.nn.softmax(self.inference(input_data, is_train=False))
+            saver = tf.train.Saver()
+            saver.restore(sess, self.SAVE_DIR)
+            x_prediction = sess.run(prediction)
+
+        plt.imshow(input)
+
+    def predict_one_image(self, image, label=None):
+        X_input = image.reshape([1, self.IMG_HEIGHT, self.IMG_WIDTH, self.CHANNEL])
+        input_data = tf.placeholder(shape=X_input.shape, dtype=tf.float32)
+        with tf.Session() as sess:
+            prediction = tf.nn.softmax(self.inference(input_data, is_train=False))
+            saver = tf.train.Saver()
+            saver.restore(sess, self.SAVE_DIR)
+            x_prediction = sess.run(prediction, feed_dict={input_data: X_input})
+
+        plt.imshow(image)
+        plt.title('Prediction: %s' % np.argmax(x_prediction))
+        plt.show()
+
+
+class OCRIter(object):
+    def __init__(self, count=4, height=60, width=60):
+        super(OCRIter, self).__init__()
+        self.letters = '0123456789'
+        self.count = count
+        self.height = height
+        self.width = width
+        self.captcha = ImageCaptcha(fonts=['../arial.ttf'], width=width * count, height=height)
+
+    def __next__(self):
+        chars = ''
+        for _ in xrange(self.count):
+            chars += random.choice(self.letters)
+        self.captcha.write(chars, 'tmp.png')
+        img = np.array(Image.open('tmp.png'), dtype='float32')
+        return img, chars
+
 
 if __name__ == '__main__':
+    orciter = OCRIter(count=1)
+    img, chars = next(orciter)
+
     captcha = Captcha()
     captcha.readconfig(config)
-    # captcha.train()
-    # captcha.test_mnist()
-    captcha.main()
+    # captcha.main()
+    # captcha.predict_from_dir('../data_test')
+    # captcha.test_model_form_file(test_X='../X_test_color.npy', test_label='../y_test_color.npy')
+    # captcha.predict_one_image_from_file('../')
+
+
+    captcha.predict_one_image(img)

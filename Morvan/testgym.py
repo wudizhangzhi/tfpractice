@@ -1,0 +1,10 @@
+import gym
+from six.moves import xrange
+
+env = gym.make('CartPole-v0')
+print(env.action_space)
+print(env.observation_space)
+#env.reset()
+#for _ in xrange(1000):
+#    env.render()
+#    env.step(env.action_space.sample())
