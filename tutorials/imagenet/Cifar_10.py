@@ -1,9 +1,15 @@
 # encoding: utf-8
 
+import sys
+
+if sys.version_info.major == 3:
+    import pickle
+else:
+    import cPickle as pickle
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import numpy as np
-import pickle
+
 import os
 import re
 
@@ -38,11 +44,21 @@ class Cifar_10:
         self._build_net()
         self.saver = tf.train.Saver()
 
+    @classmethod
+    def unpickle(cls, file):
+        with open(file, 'rb') as fo:
+            if sys.version_info.major == 3:
+                d = pickle.load(fo, encoding='bytes')
+            else:
+                d = pickle.load(fo)
+        return d
+
     def _build_net(self):
         print('=== start build graph ===')
         # placeholder
         with tf.variable_scope('Input'):
-            self.tf_images = tf.placeholder(tf.float32, shape=[None, self.IMG_H, self.IMG_W, self.IMG_D], name='images') / 255
+            self.tf_images = tf.placeholder(tf.float32, shape=[None, self.IMG_H, self.IMG_W, self.IMG_D],
+                                            name='images') / 255
             self.tf_labels = tf.placeholder(tf.int32, shape=[None, 1], name='labels')
             tf.summary.image('images', self.tf_images)
         # wieght, bias initilizer
@@ -141,15 +157,14 @@ class Cifar_10:
 
     def produce_test_data(self, testfilename):
         # test data
-        with open(testfilename, 'rb') as f:
-            d_data = pickle.load(f, encoding='bytes')
-            batch_labels = d_data[b'labels']
-            batch_images = d_data[b'data']
+        d_data = self.unpickle(testfilename)
+        batch_labels = d_data[b'labels']
+        batch_images = d_data[b'data']
 
-            assert len(batch_labels) == len(batch_images)
-            batch_labels = np.array(batch_labels)[:, np.newaxis]
-            batch_images = self._handler_images_data(batch_images)
-            self.dataset_test = tf.contrib.data.Dataset.from_tensor_slices((batch_images, batch_labels))
+        assert len(batch_labels) == len(batch_images)
+        batch_labels = np.array(batch_labels)[:, np.newaxis]
+        batch_images = self._handler_images_data(batch_images)
+        self.dataset_test = tf.contrib.data.Dataset.from_tensor_slices((batch_images, batch_labels))
         return self.dataset_test
 
     def produce_data(self, filelist, testfilename, label_name_file=None):
@@ -158,18 +173,15 @@ class Cifar_10:
         labels_list = []
         images_list = []
         for filename in filelist:
-            with open(filename, 'rb') as f:
-                d_data = pickle.load(f, encoding='bytes')
-                batch_labels = d_data[b'labels']
-                batch_images = d_data[b'data']
+            d_data = self.unpickle(filename)
+            batch_labels = d_data[b'labels']
+            batch_images = d_data[b'data']
 
-                assert len(batch_labels) == len(batch_images)
-                batch_labels = np.array(batch_labels)[:, np.newaxis]
-                labels_list.append(batch_labels)
-                batch_images = self._handler_images_data(batch_images)
-                images_list.append(batch_images)
-                # dataset = tf.contrib.data.Dataset.from_tensor_slices((batch_images, batch_labels))
-                # dataset_list.append(dataset)
+            assert len(batch_labels) == len(batch_images)
+            batch_labels = np.array(batch_labels)[:, np.newaxis]
+            labels_list.append(batch_labels)
+            batch_images = self._handler_images_data(batch_images)
+            images_list.append(batch_images)
 
         images = np.vstack(images_list)
         labels = np.vstack(labels_list)
@@ -185,9 +197,8 @@ class Cifar_10:
             if not tf.gfile.Exists(label_name_file):
                 print("can't find %s" % label_name_file)
             else:
-                with open(label_name_file, 'rb') as f:
-                    d_data = pickle.load(f, encoding='bytes')
-                    label_names = d_data[b'label_names']
+                d_data = self.unpickle(filename)
+                self.label_names = d_data[b'label_names']
 
         return self.data_set, self.dataset_test, self.label_names
 
