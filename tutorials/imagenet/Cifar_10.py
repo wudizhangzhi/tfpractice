@@ -7,7 +7,6 @@ if sys.version_info.major == 3:
 else:
     import cPickle as pickle
 import tensorflow as tf
-import matplotlib.pyplot as plt
 import numpy as np
 
 import os
@@ -257,6 +256,7 @@ class Cifar_10:
 
     @classmethod
     def plot_predicts(cls, images, predicts):
+        import matplotlib.pyplot as plt
         num = len(images)
         assert len(predicts) == num
         img_per_row = num // 2
