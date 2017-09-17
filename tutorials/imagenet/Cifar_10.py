@@ -197,7 +197,7 @@ class Cifar_10:
             if not tf.gfile.Exists(label_name_file):
                 print("can't find %s" % label_name_file)
             else:
-                d_data = self.unpickle(filename)
+                d_data = self.unpickle(label_name_file)
                 self.label_names = d_data[b'label_names']
 
         return self.data_set, self.dataset_test, self.label_names
