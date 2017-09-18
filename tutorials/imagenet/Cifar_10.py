@@ -12,6 +12,34 @@ import numpy as np
 import os
 import re
 
+FLAGS = tf.app.flags.FLAGS
+tf.app.flags.DEFINE_string('log_dir', 'log',
+                           """Directory where to save log. """)
+tf.app.flags.DEFINE_string('data_dir', 'cifar-10-batches-py',
+                           """Directory where to load data. """)
+tf.app.flags.DEFINE_string('traindata_name', 'data_batch_*',
+                           """train data file name pattern""")
+tf.app.flags.DEFINE_string('testdata_name', 'test_batch',
+                           """test data file name""")
+tf.app.flags.DEFINE_string('namespace_file', 'batches.meta',
+                           """label name list""")
+tf.app.flags.DEFINE_integer('n_labels', 10,
+                            """Num of lables""")
+tf.app.flags.DEFINE_integer('batch_size', 128,
+                            """batch size""")
+tf.app.flags.DEFINE_integer('epochs', 20,
+                            """epochs""")
+tf.app.flags.DEFINE_integer('maxstep', 100000,
+                            """maxstep""")
+tf.app.flags.DEFINE_float('lr', 0.001,
+                          """learning rate""")
+tf.app.flags.DEFINE_float('lr_decay_rate', 0.9,
+                          """lr decay rate""")
+tf.app.flags.DEFINE_integer('decay_per_step', 10000,
+                            """num of step per decay""")
+tf.app.flags.DEFINE_boolean('is_save', False,
+                            """whether save params""")
+
 
 class Cifar_10:
     def __init__(self, n_labels, batch_size=128, maxstep=8000, epochs=10, img_h=32, img_w=32, img_d=3, lr=0.001,
@@ -38,8 +66,6 @@ class Cifar_10:
                 self.traindata_filelist.append(os.path.join(data_dir, filename))
         self.testdata_name = os.path.join(data_dir, testdata_name)
         self.namespace_file = os.path.join(data_dir, namespace_file)
-
-        self.sess = tf.Session()
         self._build_net()
         self.saver = tf.train.Saver()
 
@@ -136,13 +162,14 @@ class Cifar_10:
             tf.summary.scalar('loss', self.losses)  # add loss to scalar summary
 
         with tf.variable_scope('Train'):
-            global_step = tf.Variable(0, trainable=False)
-            LR = tf.train.exponential_decay(self.LR,
-                                            global_step,
-                                            self.decay_per_step,
-                                            self.lr_decay_rate,
-                                            staircase=True)
-            self.train_op = tf.train.AdamOptimizer(LR).minimize(self.losses, global_step=global_step)
+            # global_step = tf.Variable(0, trainable=False)
+            self.global_step = tf.contrib.framework.get_or_create_global_step()
+            self.LR_decay_op = tf.train.exponential_decay(self.LR,
+                                                          self.global_step,
+                                                          self.decay_per_step,
+                                                          self.lr_decay_rate,
+                                                          staircase=True)
+            self.train_op = tf.train.AdamOptimizer(self.LR_decay_op).minimize(self.losses, global_step=self.global_step)
 
         # init
         self.init_op = tf.group(tf.global_variables_initializer(),
@@ -201,6 +228,59 @@ class Cifar_10:
 
         return self.data_set, self.dataset_test, self.label_names
 
+    def _inputs(self):
+        print('=== start retrieve data ===')
+        train_dataset, test_dataset, label_names = self.produce_data(self.traindata_filelist, self.testdata_name,
+                                                                     self.namespace_file)
+
+        train_dataset = train_dataset.batch(self.batch_size)
+        train_dataset = train_dataset.shuffle(buffer_size=10000)
+        # train_dataset = train_dataset.repeat(self.epochs)
+        train_dataset = train_dataset.repeat()
+        self.iterator = train_dataset.make_initializable_iterator()
+        next_element = self.iterator.get_next()
+
+        test_dataset = test_dataset.batch(1000)
+        test_dataset = test_dataset.repeat()
+        self.iterator_test = test_dataset.make_initializable_iterator()
+        next_element_test = self.iterator_test.get_next()
+        print('=== end retrieve data ===')
+        return next_element, next_element_test
+
+    def _train(self, is_save=False):
+        next_element, next_element_test = self._inputs()
+
+        with tf.train.MonitoredTrainingSession(checkpoint_dir=FLAGS.log_dir,
+                                               hooks=[tf.train.StopAtStepHook(last_step=FLAGS.maxstep),
+                                                      tf.train.NanTensorHook(self.losses)]
+                                               ) as self.sess:
+            # init
+            self.sess.run(self.init_op)
+            # Initialize an iterator over a dataset with 10 elements.
+            self.sess.run([self.iterator.initializer, self.iterator_test.initializer])
+            writer = tf.summary.FileWriter('./log', self.sess.graph)  # write to file
+            merged = tf.summary.merge_all()
+            step = 0
+            while not self.sess.should_stop():
+                batch_images, batch_labels = self.sess.run(next_element)
+                _, _loss = self.sess.run([self.train_op, self.losses], feed_dict={
+                    self.tf_labels: batch_labels,
+                    self.tf_images: batch_images,
+                })
+                if step % 50 == 0:
+                    batch_image_test, batch_labels_test = self.sess.run(next_element_test)
+                    _accuracy, record, _lr, _global_step = self.sess.run(
+                        [self.accuracy_op, merged, self.LR_decay_op, self.global_step], feed_dict={
+                            self.tf_labels: batch_labels_test,
+                            self.tf_images: batch_image_test,
+                        })
+                    print('lr:%s step: %s, loss: %g , accuracy: %g' % (_lr, step, _loss, _accuracy))
+                    writer.add_summary(record, _global_step)
+
+                step += 1
+
+        print('=== start training ===')
+
     def train(self, is_save=False):
         print('=== start retrieve data ===')
         # train_file_list = ['cifar-10-batches-py/data_batch_1', 'cifar-10-batches-py/data_batch_2']
@@ -219,34 +299,35 @@ class Cifar_10:
         iterator_test = test_dataset.make_initializable_iterator()
         next_element_test = iterator_test.get_next()
         print('=== end retrieve data ===')
-        # init
-        self.sess.run(self.init_op)
-        # Initialize an iterator over a dataset with 10 elements.
-        self.sess.run([iterator.initializer, iterator_test.initializer])
+        with tf.Session() as self.sess:
+            # init
+            self.sess.run(self.init_op)
+            # Initialize an iterator over a dataset with 10 elements.
+            self.sess.run([iterator.initializer, iterator_test.initializer])
 
-        writer = tf.summary.FileWriter('./log', self.sess.graph)  # write to file
-        merged = tf.summary.merge_all()
+            writer = tf.summary.FileWriter('./log', self.sess.graph)  # write to file
+            merged = tf.summary.merge_all()
 
-        print('=== start training ===')
-        for step in range(self.maxstep):
-            batch_images, batch_labels = self.sess.run(next_element)
-            _, _loss = self.sess.run([self.train_op, self.losses], feed_dict={
-                self.tf_labels: batch_labels,
-                self.tf_images: batch_images,
-            })
-            if step % 50 == 0:
-                batch_image_test, batch_labels_test = self.sess.run(next_element_test)
-                _accuracy, record = self.sess.run([self.accuracy_op, merged], feed_dict={
-                    self.tf_labels: batch_labels_test,
-                    self.tf_images: batch_image_test,
+            print('=== start training ===')
+            for step in range(self.maxstep):
+                batch_images, batch_labels = self.sess.run(next_element)
+                _, _loss = self.sess.run([self.train_op, self.losses], feed_dict={
+                    self.tf_labels: batch_labels,
+                    self.tf_images: batch_images,
                 })
-                print('step: %s, loss: %g , accuracy: %g' % (step, _loss, _accuracy))
-                writer.add_summary(record, step)
+                if step % 50 == 0:
+                    batch_image_test, batch_labels_test = self.sess.run(next_element_test)
+                    _accuracy, record, _lr = self.sess.run([self.accuracy_op, merged, self.LR_decay_op], feed_dict={
+                        self.tf_labels: batch_labels_test,
+                        self.tf_images: batch_image_test,
+                    })
+                    print('lr:%s step: %s, loss: %g , accuracy: %g' % (_lr, step, _loss, _accuracy))
+                    writer.add_summary(record, step)
 
-        print('=== end training ===')
-        print('=== save ===')
-        if is_save:
-            self.saver.save(self.sess, 'params', write_meta_graph=False)  # meta_graph not recommended
+            print('=== end training ===')
+            print('=== save ===')
+            if is_save:
+                self.saver.save(self.sess, 'params', write_meta_graph=False)  # meta_graph not recommended
 
     def predict(self, images):
         self.saver.restore(self.sess, 'params')
@@ -270,6 +351,11 @@ class Cifar_10:
         self.produce_test_data('cifar-10-batches-py/test_batch')
 
 
+def main(argv=None):
+    c = Cifar_10(n_labels=FLAGS.n_labels, maxstep=FLAGS.maxstep, decay_per_step=FLAGS.decay_per_step, lr=FLAGS.lr)
+    # c._train(is_save=FLAGS.is_save)
+    c.train(is_save=FLAGS.is_save)
+
+
 if __name__ == '__main__':
-    c = Cifar_10(n_labels=10, maxstep=10000000, decay_per_step=20000, lr=0.001)
-    c.train(is_save=True)
+    tf.app.run()
