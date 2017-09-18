@@ -271,5 +271,5 @@ class Cifar_10:
 
 
 if __name__ == '__main__':
-    c = Cifar_10(n_labels=10, maxstep=1000000, decay_per_step=8000, lr=0.001)
+    c = Cifar_10(n_labels=10, maxstep=10000000, decay_per_step=20000, lr=0.001)
     c.train(is_save=True)
