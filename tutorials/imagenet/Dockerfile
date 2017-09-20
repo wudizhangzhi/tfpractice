@@ -1,8 +1,8 @@
 From frolvlad/alpine-python3
 
-WORKDIR /home/zzc/tfpractice/tutorials/imagenet/
+WORKDIR /app 
 
-ADD . /home/zzc/tfpractice/tutorials/imagenet/
+ADD . /app
 
 RUN pip install -r requirements.txt
 
