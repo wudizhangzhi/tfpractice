@@ -100,7 +100,7 @@ class Cifar_10:
                                      )  # shape [batch, height, width, 64]
 
             pool1 = tf.layers.max_pooling2d(conv1,
-                                            pool_size=2,
+                                            pool_size=3,
                                             strides=2,
                                             padding='same')  # shape [batch, height/2, width/2, 64]
             # norm1
@@ -109,7 +109,7 @@ class Cifar_10:
         # 第二层卷积层
         with tf.variable_scope('C_layer_2'):
             conv2 = tf.layers.conv2d(norm1,
-                                     filters=128,
+                                     filters=64,
                                      kernel_size=5,
                                      strides=1,
                                      padding='same',
@@ -119,18 +119,18 @@ class Cifar_10:
             norm2 = tf.nn.lrn(conv2, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
                               name='norm2')
             pool2 = tf.layers.max_pooling2d(norm2,
-                                            pool_size=2,
+                                            pool_size=3,
                                             strides=2,
                                             padding='same')  # shape [batch, height/4, width/4, 128]
 
         # reshape
         # h_w_d = tf.reduce_prod(shape[1:])
-        h_w_d = self.IMG_H // 4 * self.IMG_W // 4 * 128
+        h_w_d = self.IMG_H // 4 * self.IMG_W // 4 * 64
         pool2_reshape = tf.reshape(pool2, [-1, h_w_d])
         # 隐藏层1
         with tf.variable_scope('Hidden_layer_1'):
             hidden_1 = tf.layers.dense(pool2_reshape,
-                                       128 * 2,
+                                       384,
                                        activation=tf.nn.relu,
                                        kernel_initializer=w_initilizer,
                                        bias_initializer=b_initilizer)
