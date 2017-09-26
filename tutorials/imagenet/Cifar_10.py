@@ -143,9 +143,17 @@ class Cifar_10:
                                        kernel_initializer=w_initilizer,
                                        bias_initializer=b_initilizer)
 
-        # 输出层
+        # 隐藏层3
         with tf.variable_scope('Hidden_layer_3'):
-            self.output = tf.layers.dense(hidden_2, self.n_labels,
+            hidden_3 = tf.layers.dense(hidden_2,
+                                       96,
+                                       activation=tf.nn.relu,
+                                       kernel_initializer=w_initilizer,
+                                       bias_initializer=b_initilizer)
+
+        # 输出层
+        with tf.variable_scope('Hidden_layer_4'):
+            self.output = tf.layers.dense(hidden_3, self.n_labels,
                                           kernel_initializer=w_initilizer,
                                           bias_initializer=b_initilizer)
 
