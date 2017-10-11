@@ -314,7 +314,7 @@ class Cifar_10:
             # Initialize an iterator over a dataset with 10 elements.
             self.sess.run([iterator.initializer, iterator_test.initializer])
 
-            writer = tf.summary.FileWriter('./log', self.sess.graph)  # write to file
+            writer = tf.summary.FileWriter(FLAGS.log_dir, self.sess.graph)  # write to file
             merged = tf.summary.merge_all()
 
             print('=== start training ===')
