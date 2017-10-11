@@ -88,6 +88,7 @@ class Cifar_10:
             tf.summary.image('images', self.tf_images)
         # wieght, bias initilizer
         w_initilizer, b_initilizer = tf.truncated_normal_initializer(stddev=5e-2), tf.constant_initializer(0)
+        w_local_initilizer, b_local_initilizer = tf.truncated_normal_initializer(stddev=0.04), tf.constant_initializer(0.1)
 
         # 第一层卷积层
         with tf.variable_scope('C_layer_1'):
@@ -105,7 +106,7 @@ class Cifar_10:
                                             padding='same')  # shape [batch, height/2, width/2, 64]
             # norm1
             norm1 = tf.nn.lrn(pool1, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
-                              name='norm2')
+                              name='norm1')
         # 第二层卷积层
         with tf.variable_scope('C_layer_2'):
             conv2 = tf.layers.conv2d(norm1,
@@ -132,7 +133,7 @@ class Cifar_10:
             hidden_1 = tf.layers.dense(pool2_reshape,
                                        384,
                                        activation=tf.nn.relu,
-                                       kernel_initializer=w_initilizer,
+                                       kernel_initializer=w_local_initilizer,
                                        bias_initializer=b_initilizer)
 
         # 隐藏层2
@@ -140,21 +141,21 @@ class Cifar_10:
             hidden_2 = tf.layers.dense(hidden_1,
                                        192,
                                        activation=tf.nn.relu,
-                                       kernel_initializer=w_initilizer,
-                                       bias_initializer=b_initilizer)
+                                       kernel_initializer=w_local_initilizer,
+                                       bias_initializer=b_local_initilizer)
 
-        # 隐藏层3
-        with tf.variable_scope('Hidden_layer_3'):
-            hidden_3 = tf.layers.dense(hidden_2,
-                                       96,
-                                       activation=tf.nn.relu,
-                                       kernel_initializer=w_initilizer,
-                                       bias_initializer=b_initilizer)
+        # # 隐藏层3
+        # with tf.variable_scope('Hidden_layer_3'):
+        #     hidden_3 = tf.layers.dense(hidden_2,
+        #                                96,
+        #                                activation=tf.nn.relu,
+        #                                kernel_initializer=w_initilizer,
+        #                                bias_initializer=b_initilizer)
 
         # 输出层
-        with tf.variable_scope('Hidden_layer_4'):
-            self.output = tf.layers.dense(hidden_3, self.n_labels,
-                                          kernel_initializer=w_initilizer,
+        with tf.variable_scope('Hidden_layer_3'):
+            self.output = tf.layers.dense(hidden_2, self.n_labels,
+                                          kernel_initializer=tf.truncated_normal_initializer(stddev=1/192.0),
                                           bias_initializer=b_initilizer)
 
         # accuracy
