@@ -120,7 +120,7 @@ def main(argv):
                                           prediction_fn=tf.contrib.layers.softmax,
                                           spatial_squeeze=True,
                                           reuse=True,
-                                          scope='MobilenetV1')
+                                          scope='MobilenetV1_prediction')
     accuracy, accuracy_op = tf.metrics.accuracy(labels=tf_labels_test,
                                                 predictions=tf.argmax(logits_test, axis=1))
     tf.summary.scalar('accuracy', accuracy_op)
