@@ -18,6 +18,8 @@ import numpy as np
 import jieba
 import jieba.posseg as pseg
 import time
+
+from tensorflow.contrib.tensorboard.plugins import projector
 from zhon.hanzi import punctuation as zhon_punctuation
 from string import punctuation as eng_punctunation
 
@@ -47,6 +49,9 @@ flags.DEFINE_integer('valid_size', 16, '用于验证的数量')
 flags.DEFINE_integer('valid_window', 1000, '用于验证的范围')
 flags.DEFINE_integer('embedding_size', 128, 'Dimension, 每个单词的维度')
 flags.DEFINE_integer('num_steps', 100000, '训练次数')
+flags.DEFINE_string('font_path', '/Users/zhangzhichao/github/taidiiv2/taidii/public/font/simhei.ttf', '字体路径')
+flags.DEFINE_integer('example_size', 0, '训练的词数')
+flags.DEFINE_string('log_dir', 'log', '日志目录')
 
 FLAGS = flags.FLAGS
 
@@ -84,7 +89,8 @@ def generate_vocabulary_redis_from_txt(filename, additional_dict, redis_key, enc
     print('-' * 30)
 
 
-def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, redis_key_index, encoding='gbk', pure=True):
+def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, redis_key_index, encoding='gbk',
+                              pure=True):
     start = time.time()
     if os.path.exists(additional_dict):
         jieba.load_userdict(additional_dict)
@@ -99,6 +105,8 @@ def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, r
             else:
                 char_list = line.split()
             for _char in char_list:
+                if FLAGS.example_size and redis_client.llen(redis_key_index) > FLAGS.example_size:
+                    break
                 index = redis_client.zrank(redis_key_vocabulary, _char)
                 if index:
                     redis_client.rpush(redis_key_index, int(index))
@@ -160,7 +168,7 @@ def debug_batch_labels(batch, labels):
 
 def build_graph():
     vocabulary_size = int(redis_client.zcard(FLAGS.redis_key_vocabulary))
-    valid_examples = np.random.choice(FLAGS.valid_window, FLAGS.valid_size, replace=False)
+    valid_examples = np.random.choice(range(vocabulary_size - 100, vocabulary_size), FLAGS.valid_size, replace=False)
 
     graph = tf.Graph()
 
@@ -171,22 +179,25 @@ def build_graph():
         valid_dataset = tf.constant(valid_examples)
 
         with tf.device('/cpu:0'):
-            # Look up embeddings for inputs.
-            embeddings = tf.Variable(
-                tf.random_uniform(
-                    [vocabulary_size, FLAGS.embedding_size],
-                    -1.0, 1.0)
-            )
+            with tf.name_scope('embedings'):
+                # Look up embeddings for inputs.
+                embeddings = tf.Variable(
+                    tf.random_uniform(
+                        [vocabulary_size, FLAGS.embedding_size],
+                        -1.0, 1.0)
+                )
 
-            embeded = tf.nn.embedding_lookup(embeddings, train_inputs)
+                embeded = tf.nn.embedding_lookup(embeddings, train_inputs)
 
-            # Construct the variables for the NCE loss
-            nce_weights = tf.Variable(
-                tf.truncated_normal(
-                    [vocabulary_size, FLAGS.embedding_size],
-                    stddev=1.0 / np.sqrt(FLAGS.embedding_size))
-            )
-            nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
+            with tf.name_scope('weight'):
+                # Construct the variables for the NCE loss
+                nce_weights = tf.Variable(
+                    tf.truncated_normal(
+                        [vocabulary_size, FLAGS.embedding_size],
+                        stddev=1.0 / np.sqrt(FLAGS.embedding_size))
+                )
+            with tf.name_scope('biases'):
+                nce_biases = tf.Variable(tf.zeros([vocabulary_size]))
 
         # Compute the average NCE loss for the batch.
         # tf.nce_loss automatically draws a new sample of the negative labels each
@@ -202,8 +213,10 @@ def build_graph():
                 num_classes=vocabulary_size
             )
         )
-
-        optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
+        # Add the loss value as a scalar to summary.
+        tf.summary.scalar('loss', loss)
+        with tf.name_scope('optimizer'):
+            optimizer = tf.train.GradientDescentOptimizer(1.0).minimize(loss)
 
         # Compute the cosine similarity between minibatch examples and all embeddings.
         norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
@@ -213,21 +226,41 @@ def build_graph():
         similarity = tf.matmul(
             valid_embeddings, normalized_embeddings, transpose_b=True)
 
-    with tf.Session(graph=graph) as session:
+        # Merge all summaries.
+        merged = tf.summary.merge_all()
+
+        # Add variable initializer.
         init = tf.global_variables_initializer()
+
+        # Create a saver.
+        saver = tf.train.Saver()
+
+    with tf.Session(graph=graph) as session:
+        writer = tf.summary.FileWriter(FLAGS.log_dir, session.graph)
+
         init.run()
         print('Initialized')
 
         target_index = 0
         average_loss = 0
+        sim_last = None
         for step in range(FLAGS.num_steps):
             batch_train, labels_train, target_index = generate_train_batch(target_index, FLAGS.window_width,
                                                                            FLAGS.batch_size, FLAGS.num_skips,
                                                                            FLAGS.redis_key_index)
             feed_dict = {train_inputs: batch_train, train_labels: labels_train}
-            _, loss_val = session.run([optimizer, loss], feed_dict=feed_dict)
+            # Define metadata variable.
+            run_metadata = tf.RunMetadata()
+
+            _, loss_val, summary = session.run([optimizer, loss, merged], feed_dict=feed_dict)
 
             average_loss += loss_val
+            # Add returned summaries to writer in each step.
+            writer.add_summary(summary, step)
+
+            # Add metadata to visualize the graph for the last run.
+            if step == (FLAGS.num_steps - 1):
+                writer.add_run_metadata(run_metadata, 'step%d' % step)
 
             if step % 2000 == 0:
                 if step > 0:
@@ -238,6 +271,9 @@ def build_graph():
             # 查看相似的词组
             if step % 10000 == 0:
                 sim = similarity.eval()
+                if sim_last is not None:
+                    print('是否一样: {}'.format(np.any(np.equal(sim, sim_last))))
+                sim_last = sim
                 for i in range(FLAGS.valid_size):
                     valid_word = redis_client.zrange(FLAGS.redis_key_vocabulary, valid_examples[i], valid_examples[i])[
                         0]
@@ -253,13 +289,22 @@ def build_graph():
 
         final_embeddings = normalized_embeddings.eval()
 
-        plot_samples(final_embeddings)
+        # Save the model for checkpoints.
+        saver.save(session, os.path.join(FLAGS.log_dir, 'model.ckpt'))
+        # Create a configuration for visualizing embeddings with the labels in TensorBoard.
+        config = projector.ProjectorConfig()
+        embedding_conf = config.embeddings.add()
+        embedding_conf.tensor_name = embeddings.name
+        embedding_conf.metadata_path = os.path.join(FLAGS.log_dir, 'metadata.tsv')
+        projector.visualize_embeddings(writer, config)
+
+        plot_samples(final_embeddings, vocabulary_size)
 
 
 def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
     assert low_dim_embs.shape[0] >= len(labels), 'More labels than embeddings'
     from matplotlib.font_manager import FontProperties
-    font = FontProperties(fname=r"/Users/zhangzhichao/github/taidiiv2/taidii/public/font/simhei.ttf", size=14)
+    font = FontProperties(fname=FLAGS.font_path, size=14)
     plt.figure(figsize=(18, 18))  # in inches
     for i, label in enumerate(labels):
         x, y = low_dim_embs[i, :]
@@ -275,13 +320,13 @@ def plot_with_labels(low_dim_embs, labels, filename='tsne.png'):
     plt.savefig(filename)
 
 
-def plot_samples(final_embeddings):
+def plot_samples(final_embeddings, vocabulary_size=5000):
     # simhei.ttf
     # plt.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
     # plt.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
     tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000, method='exact')
     plot_only = 500
-    low_dim_embs = tsne.fit_transform(final_embeddings[:plot_only, :])
+    low_dim_embs = tsne.fit_transform(final_embeddings[np.random.randint(vocabulary_size, size=plot_only), :])
     labels = [redis_client.zrange(FLAGS.redis_key_vocabulary, i, i)[0].decode('utf8') for i in range(plot_only)]
     plot_with_labels(low_dim_embs, labels)
 
