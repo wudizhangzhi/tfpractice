@@ -11,6 +11,7 @@ import os
 import random
 import re
 import collections
+import zipfile
 
 import redis
 import tensorflow as tf
@@ -50,7 +51,7 @@ flags.DEFINE_integer('valid_window', 1000, '用于验证的范围')
 flags.DEFINE_integer('embedding_size', 128, 'Dimension, 每个单词的维度')
 flags.DEFINE_integer('num_steps', 100000, '训练次数')
 flags.DEFINE_string('font_path', '/Users/zhangzhichao/github/taidiiv2/taidii/public/font/simhei.ttf', '字体路径')
-flags.DEFINE_integer('vocabulay_size', 5000, '字典大小。最常用的多少词')
+flags.DEFINE_integer('vocabulary_size', 50000, '字典大小。最常用的多少词')
 flags.DEFINE_string('log_dir', 'log', '日志目录')
 
 FLAGS = flags.FLAGS
@@ -105,9 +106,9 @@ def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, r
             else:
                 char_list = line.split()
             for _char in char_list:
-                index = redis_client.zrevrank(redis_key_vocabulary, _char)
+                index = int(redis_client.zrevrank(redis_key_vocabulary, _char))
                 if index:
-                    if index > FLAGS.vocabulay_size:
+                    if index >= FLAGS.vocabulary_size:
                         continue
                     redis_client.rpush(redis_key_index, int(index))
                     print("添加 {} -> {}".format(_char, index))
@@ -120,10 +121,11 @@ def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, r
 def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis_key_index):
     """
     word2vec 中的做法是 设置一个数值 num_skips, 每次 windows 中只随机取 num_skips 次 数值对
-    :param target_inex:
-    :param window_width:
+            [context_word, target, context_word, context_word]
+    :param target_inex:   目标的全文索引
+    :param window_width:  窗口宽度
     :param batch_size:
-    :param num_skips:
+    :param num_skips:  每次窗口随机取样的数量
     :param redis_key_index:
     :return:
     """
@@ -136,9 +138,11 @@ def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis
 
     count = 0  # 数据数量
     while count < batch_size:
-        if target_inex + window_width + 1 > length or target_inex - window_width < 0:
+        reach_end = target_inex + window_width + 1 > length
+        if reach_end or target_inex - window_width < 0:
             start = 0
-            target_inex = 0
+            if reach_end:
+                target_inex = 0
         else:
             start = target_inex - window_width
         end = start + window_width + 1
@@ -146,15 +150,15 @@ def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis
 
         window_target = target_inex - start
         index_window_target_char = span[window_target]
-        if index_window_target_char > FLAGS.vocabulary_size:
+        if int(index_window_target_char) > FLAGS.vocabulary_size:
             continue
         context_words = [w for w in range(len(span)) if w != window_target]
         words_to_use = random.sample(context_words, num_skips)
         for i, context_word in enumerate(words_to_use):
             context_word = span[context_word]
-            if context_word > FLAGS.vocabulary_size:
+            if int(context_word) >= FLAGS.vocabulary_size:
                 continue
-            batch[count] = span[context_word]
+            batch[count] = context_word
             labels[count, 0] = span[window_target]
             count += 1
             if count >= batch_size:
@@ -173,16 +177,17 @@ def debug_batch_labels(batch, labels):
 
 
 def build_graph():
-    vocabulary_size = int(redis_client.zcard(FLAGS.redis_key_vocabulary))
-    valid_examples = np.random.choice(range(vocabulary_size - 100, vocabulary_size), FLAGS.valid_size, replace=False)
+    vocabulary_size = FLAGS.vocabulary_size
+    valid_examples = np.random.choice(100, FLAGS.valid_size, replace=False)
 
     graph = tf.Graph()
 
     with graph.as_default():
-        # input data
-        train_inputs = tf.placeholder(tf.int32, shape=[FLAGS.batch_size])
-        train_labels = tf.placeholder(tf.int32, shape=[FLAGS.batch_size, 1])
-        valid_dataset = tf.constant(valid_examples)
+        with tf.name_scope('Inputs'):
+            # input data
+            train_inputs = tf.placeholder(tf.int32, shape=[FLAGS.batch_size])
+            train_labels = tf.placeholder(tf.int32, shape=[FLAGS.batch_size, 1])
+            valid_dataset = tf.constant(valid_examples)
 
         with tf.device('/cpu:0'):
             with tf.name_scope('embedings'):
@@ -301,6 +306,7 @@ def build_graph():
                         log_str = '{} {},'.format(log_str, close_word.decode('utf8'))
                     print(log_str)
 
+
         final_embeddings = normalized_embeddings.eval()
 
         # Write corresponding labels for the embeddings.
@@ -349,6 +355,9 @@ def plot_samples(final_embeddings, vocabulary_size=5000):
     plot_with_labels(low_dim_embs, labels)
 
 
+
+
+
 def main(_):
     # 判断是否生成字典
     vocabulary_redis_exists = redis_client.exists(FLAGS.redis_key_vocabulary)
@@ -367,7 +376,13 @@ def main(_):
         print('redis中已经存在文章索引列表')
 
     # 生成训练数据
-    # batch, labels, target_index = generate_train_batch(0, FLAGS.window_width, FLAGS.batch_size, FLAGS.num_skips,
+    # target_index = 0
+    # batch, labels, target_index = generate_train_batch(target_index, FLAGS.window_width, FLAGS.batch_size, FLAGS.num_skips,
+    #                                                    FLAGS.redis_key_index)
+    # _batch = batch
+    # debug_batch_labels(batch, labels)
+    # batch, labels, target_index = generate_train_batch(target_index, FLAGS.window_width, FLAGS.batch_size,
+    #                                                    FLAGS.num_skips,
     #                                                    FLAGS.redis_key_index)
     # debug_batch_labels(batch, labels)
 
