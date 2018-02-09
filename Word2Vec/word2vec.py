@@ -50,7 +50,7 @@ flags.DEFINE_integer('valid_window', 1000, '用于验证的范围')
 flags.DEFINE_integer('embedding_size', 128, 'Dimension, 每个单词的维度')
 flags.DEFINE_integer('num_steps', 100000, '训练次数')
 flags.DEFINE_string('font_path', '/Users/zhangzhichao/github/taidiiv2/taidii/public/font/simhei.ttf', '字体路径')
-flags.DEFINE_integer('example_size', 0, '训练的词数')
+flags.DEFINE_integer('vocabulay_size', 5000, '字典大小。最常用的多少词')
 flags.DEFINE_string('log_dir', 'log', '日志目录')
 
 FLAGS = flags.FLAGS
@@ -105,10 +105,10 @@ def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, r
             else:
                 char_list = line.split()
             for _char in char_list:
-                if FLAGS.example_size and redis_client.llen(redis_key_index) > FLAGS.example_size:
-                    break
-                index = redis_client.zrank(redis_key_vocabulary, _char)
+                index = redis_client.zrevrank(redis_key_vocabulary, _char)
                 if index:
+                    if index > FLAGS.vocabulay_size:
+                        continue
                     redis_client.rpush(redis_key_index, int(index))
                     print("添加 {} -> {}".format(_char, index))
     duration = time.time() - start
@@ -145,9 +145,15 @@ def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis
         span = redis_client.lrange(redis_key_index, start, end)
 
         window_target = target_inex - start
+        index_window_target_char = span[window_target]
+        if index_window_target_char > FLAGS.vocabulary_size:
+            continue
         context_words = [w for w in range(len(span)) if w != window_target]
         words_to_use = random.sample(context_words, num_skips)
         for i, context_word in enumerate(words_to_use):
+            context_word = span[context_word]
+            if context_word > FLAGS.vocabulary_size:
+                continue
             batch[count] = span[context_word]
             labels[count, 0] = span[window_target]
             count += 1
@@ -161,8 +167,8 @@ def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis
 
 def debug_batch_labels(batch, labels):
     for i in range(FLAGS.batch_size):
-        context = redis_client.zrange(FLAGS.redis_key_vocabulary, batch[i], batch[i])[0].decode('utf8')
-        target = redis_client.zrange(FLAGS.redis_key_vocabulary, labels[i][0], labels[i][0])[0].decode('utf8')
+        context = redis_client.zrevrange(FLAGS.redis_key_vocabulary, batch[i], batch[i])[0].decode('utf8')
+        target = redis_client.zrevrange(FLAGS.redis_key_vocabulary, labels[i][0], labels[i][0])[0].decode('utf8')
         print('{} -> {}'.format(context, target))
 
 
@@ -222,6 +228,7 @@ def build_graph():
         norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
         normalized_embeddings = embeddings / norm
         valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings, valid_dataset)
+        # 余弦相似性
         # (valid_size, embeddings_size) * (vocabulary_size, embeddings_size)^T
         similarity = tf.matmul(
             valid_embeddings, normalized_embeddings, transpose_b=True)
@@ -243,7 +250,9 @@ def build_graph():
 
         target_index = 0
         average_loss = 0
+        # TODO
         sim_last = None
+        embedings_last = None
         for step in range(FLAGS.num_steps):
             batch_train, labels_train, target_index = generate_train_batch(target_index, FLAGS.window_width,
                                                                            FLAGS.batch_size, FLAGS.num_skips,
@@ -271,11 +280,16 @@ def build_graph():
             # 查看相似的词组
             if step % 10000 == 0:
                 sim = similarity.eval()
+                # TODO
                 if sim_last is not None:
-                    print('是否一样: {}'.format(np.any(np.equal(sim, sim_last))))
+                    print('是否一样: {}'.format(np.all(np.equal(sim, sim_last))))
                 sim_last = sim
+                if embedings_last is not None:
+                    print('字典是否一样: {}'.format(session.run(tf.reduce_all(tf.equal(embeddings, embedings_last)))))
+                embedings_last = embeddings
+
                 for i in range(FLAGS.valid_size):
-                    valid_word = redis_client.zrange(FLAGS.redis_key_vocabulary, valid_examples[i], valid_examples[i])[
+                    valid_word = redis_client.zrevrange(FLAGS.redis_key_vocabulary, valid_examples[i], valid_examples[i])[
                         0]
                     top_k = 8  # 最相似的8个
 
@@ -283,12 +297,16 @@ def build_graph():
 
                     log_str = 'Nearest {}:'.format(valid_word.decode('utf8'))
                     for k in range(top_k):
-                        close_word = redis_client.zrange(FLAGS.redis_key_vocabulary, nearest[k], nearest[k])[0]
+                        close_word = redis_client.zrevrange(FLAGS.redis_key_vocabulary, nearest[k], nearest[k])[0]
                         log_str = '{} {},'.format(log_str, close_word.decode('utf8'))
                     print(log_str)
 
         final_embeddings = normalized_embeddings.eval()
 
+        # Write corresponding labels for the embeddings.
+        with open(FLAGS.log_dir + '/metadata.tsv', 'w') as f:
+            for i in range(vocabulary_size):
+                f.write(redis_client.zrevrange(FLAGS.redis_key_vocabulary, i, i)[0].decode('utf8') + '\n')
         # Save the model for checkpoints.
         saver.save(session, os.path.join(FLAGS.log_dir, 'model.ckpt'))
         # Create a configuration for visualizing embeddings with the labels in TensorBoard.
@@ -327,7 +345,7 @@ def plot_samples(final_embeddings, vocabulary_size=5000):
     tsne = TSNE(perplexity=30, n_components=2, init='pca', n_iter=5000, method='exact')
     plot_only = 500
     low_dim_embs = tsne.fit_transform(final_embeddings[np.random.randint(vocabulary_size, size=plot_only), :])
-    labels = [redis_client.zrange(FLAGS.redis_key_vocabulary, i, i)[0].decode('utf8') for i in range(plot_only)]
+    labels = [redis_client.zrevrange(FLAGS.redis_key_vocabulary, i, i)[0].decode('utf8') for i in range(plot_only)]
     plot_with_labels(low_dim_embs, labels)
 
 

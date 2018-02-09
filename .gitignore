@@ -118,3 +118,4 @@ tests
 cifar-10-batches-py
 .DS_Store
 *.png
+log
