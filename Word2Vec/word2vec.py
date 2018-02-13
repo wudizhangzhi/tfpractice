@@ -34,7 +34,7 @@ redis_client = redis.Redis(connection_pool=pool)
 
 # FLAG
 flags = tf.app.flags
-flags.DEFINE_string('mode', 'train', '模式')
+flags.DEFINE_string('mode', 'train', '模式: train, predect')
 
 flags.DEFINE_string('filepath', '/Users/zhangzhichao/Documents/鹿鼎记.txt', '文本文件路径')
 flags.DEFINE_string('additional_dict', 'dict.txt', '附加的字典')
@@ -255,9 +255,6 @@ def build_graph():
 
         target_index = 0
         average_loss = 0
-        # TODO
-        sim_last = None
-        embedings_last = None
         for step in range(FLAGS.num_steps):
             batch_train, labels_train, target_index = generate_train_batch(target_index, FLAGS.window_width,
                                                                            FLAGS.batch_size, FLAGS.num_skips,
@@ -285,17 +282,11 @@ def build_graph():
             # 查看相似的词组
             if step % 10000 == 0:
                 sim = similarity.eval()
-                # TODO
-                if sim_last is not None:
-                    print('是否一样: {}'.format(np.all(np.equal(sim, sim_last))))
-                sim_last = sim
-                if embedings_last is not None:
-                    print('字典是否一样: {}'.format(session.run(tf.reduce_all(tf.equal(embeddings, embedings_last)))))
-                embedings_last = embeddings
 
                 for i in range(FLAGS.valid_size):
-                    valid_word = redis_client.zrevrange(FLAGS.redis_key_vocabulary, valid_examples[i], valid_examples[i])[
-                        0]
+                    valid_word = \
+                        redis_client.zrevrange(FLAGS.redis_key_vocabulary, valid_examples[i], valid_examples[i])[
+                            0]
                     top_k = 8  # 最相似的8个
 
                     nearest = (-sim[i, :]).argsort()[1:top_k + 1]
@@ -305,7 +296,6 @@ def build_graph():
                         close_word = redis_client.zrevrange(FLAGS.redis_key_vocabulary, nearest[k], nearest[k])[0]
                         log_str = '{} {},'.format(log_str, close_word.decode('utf8'))
                     print(log_str)
-
 
         final_embeddings = normalized_embeddings.eval()
 
@@ -319,7 +309,7 @@ def build_graph():
         config = projector.ProjectorConfig()
         embedding_conf = config.embeddings.add()
         embedding_conf.tensor_name = embeddings.name
-        embedding_conf.metadata_path = os.path.join(FLAGS.log_dir, 'metadata.tsv')
+        embedding_conf.metadata_path = os.path.join('metadata.tsv')
         projector.visualize_embeddings(writer, config)
 
         plot_samples(final_embeddings, vocabulary_size)
@@ -355,7 +345,9 @@ def plot_samples(final_embeddings, vocabulary_size=5000):
     plot_with_labels(low_dim_embs, labels)
 
 
-
+def predict(analogy):
+    # 恢复session
+    pass
 
 
 def main(_):
@@ -375,21 +367,12 @@ def main(_):
     else:
         print('redis中已经存在文章索引列表')
 
-    # 生成训练数据
-    # target_index = 0
-    # batch, labels, target_index = generate_train_batch(target_index, FLAGS.window_width, FLAGS.batch_size, FLAGS.num_skips,
-    #                                                    FLAGS.redis_key_index)
-    # _batch = batch
-    # debug_batch_labels(batch, labels)
-    # batch, labels, target_index = generate_train_batch(target_index, FLAGS.window_width, FLAGS.batch_size,
-    #                                                    FLAGS.num_skips,
-    #                                                    FLAGS.redis_key_index)
-    # debug_batch_labels(batch, labels)
-
-    # TODO 开始训练
-
-    # TODO 验证相近的词组
-    build_graph()
+    if FLAGS.mode == 'train':
+        # TODO 开始训练
+        build_graph()
+    elif FLAGS.mode == 'predict':
+        # TODO 验证相近的词组
+        pass
 
 
 if __name__ == '__main__':
