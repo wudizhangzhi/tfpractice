@@ -108,8 +108,9 @@ def convert_txt_to_index_list(filename, additional_dict, redis_key_vocabulary, r
             for _char in char_list:
                 index = int(redis_client.zrevrank(redis_key_vocabulary, _char))
                 if index:
-                    if index >= FLAGS.vocabulary_size:
-                        continue
+                    if FLAGS.vocabulary_size:
+                        if index >= FLAGS.vocabulary_size:
+                            continue
                     redis_client.rpush(redis_key_index, int(index))
                     print("添加 {} -> {}".format(_char, index))
     duration = time.time() - start
@@ -150,14 +151,16 @@ def generate_train_batch(target_inex, window_width, batch_size, num_skips, redis
 
         window_target = target_inex - start
         index_window_target_char = span[window_target]
-        if int(index_window_target_char) > FLAGS.vocabulary_size:
-            continue
+        if FLAGS.vocabulary_size:
+            if int(index_window_target_char) > FLAGS.vocabulary_size:
+                continue
         context_words = [w for w in range(len(span)) if w != window_target]
         words_to_use = random.sample(context_words, num_skips)
         for i, context_word in enumerate(words_to_use):
             context_word = span[context_word]
-            if int(context_word) >= FLAGS.vocabulary_size:
-                continue
+            if FLAGS.vocabulary_size:
+                if int(context_word) >= FLAGS.vocabulary_size:
+                    continue
             batch[count] = context_word
             labels[count, 0] = span[window_target]
             count += 1
@@ -177,7 +180,8 @@ def debug_batch_labels(batch, labels):
 
 
 def build_graph():
-    vocabulary_size = FLAGS.vocabulary_size
+
+    vocabulary_size = FLAGS.vocabulary_size or int(redis_client.zcard(FLAGS.redis_key_vocabulary))
     valid_examples = np.random.choice(100, FLAGS.valid_size, replace=False)
 
     graph = tf.Graph()
