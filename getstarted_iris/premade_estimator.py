@@ -3,6 +3,10 @@
 # @Time    : 2018/2/13 下午7:58
 # @Author  : wudizhangzhi
 
+"""
+https://www.tensorflow.org/get_started/premade_estimators
+"""
+
 import tensorflow as tf
 import iris_data
 
