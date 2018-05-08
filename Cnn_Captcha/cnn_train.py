@@ -1,16 +1,22 @@
-from generate_captcha import generate_gray_captcha, TOTAL_NUM, TEMPLATE
+from generate_captcha import generate_gray_captcha, TOTAL_NUM, TEMPLATE, rgb2gray
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
 
 flags = tf.app.flags
 flags.DEFINE_integer('epoch_num', 2, '训练周期')
-flags.DEFINE_integer('batch_size', 32, '训练样本大小')
-flags.DEFINE_float('lr', 0.001, '学习率')
-flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
+flags.DEFINE_integer('train_step', 5000, '训练周期')
 flags.DEFINE_integer('captcha_width', 160, '验证码宽')
 flags.DEFINE_integer('captcha_height', 60, '验证码高')
 flags.DEFINE_integer('char_num', 4, '验证码字符数')
+flags.DEFINE_integer('batch_size', 32, '训练样本大小')
+# float
+flags.DEFINE_float('lr', 0.001, '学习率')
+flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
+flags.DEFINE_float('keep_prob', 0.9, '保留率')
+# boolean
+flags.DEFINE_boolean('is_train', True, '是否是训练')
 FLAGS = flags.FLAGS
 
 
@@ -43,16 +49,18 @@ def next_batch(batch_size):
 # inputdata
 WIDTH, HEIGHT = FLAGS.captcha_width, FLAGS.captcha_height
 with tf.name_scope('Input'):
-    tf_images = tf.placeholder(dtype=tf.float32, shape=(None, WIDTH * HEIGHT))
-    tf_labels = tf.placeholder(dtype=tf.int8, shape=(None, TOTAL_NUM * FLAGS.char_num))
+    tf_images = tf.placeholder(dtype=tf.float32, shape=(None, WIDTH * HEIGHT), name='input_images')
+    tf_labels = tf.placeholder(dtype=tf.int8, shape=(None, TOTAL_NUM * FLAGS.char_num), name='input_labels')
+    keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
     tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
+
 
 
 def build_graph():
 
     # convolution layer 1
-    with tf.name_scope('Convolution Layer 1'):
+    with tf.name_scope('Convolution_Layer_1'):
         conv1 = tf.layers.conv2d(
             tf_images_reshaped,
             filters=16,
@@ -68,8 +76,10 @@ def build_graph():
             strides=(2, 2),
             padding='same',
         )  # (-1, 30, 80, 16)
+
+        pool1 = tf.nn.dropout(pool1, keep_prob)
     # convolution layer 2
-    with tf.name_scope('Convolution Layer 2'):
+    with tf.name_scope('Convolution_Layer_2'):
         conv2 = tf.layers.conv2d(
             pool1,
             filters=32,
@@ -85,8 +95,9 @@ def build_graph():
             strides=(2, 2),
             padding='same',
         )  # (-1, 15, 40, 32)
+        pool2 = tf.nn.dropout(pool2, keep_prob)
     # convolution layer 3
-    with tf.name_scope('Convolution Layer 3'):
+    with tf.name_scope('Convolution_Layer_3'):
         conv3 = tf.layers.conv2d(
             pool2,
             filters=64,
@@ -102,11 +113,12 @@ def build_graph():
             strides=(3, 2),
             padding='same',
         )  # (-1, 5, 20, 64)
-
+        pool3 = tf.nn.dropout(pool3, keep_prob)
     # dense layers
-    with tf.name_scope('Dense Layers'):
+    with tf.name_scope('Dense_Layers'):
         reshaped = tf.reshape(pool3, (-1, np.prod(pool3.get_shape().as_list()[1:])))
         dense1 = tf.layers.dense(reshaped, 1024)
+        dense1 = tf.nn.dropout(dense1, keep_prob)
 
         output = tf.layers.dense(dense1, TOTAL_NUM * FLAGS.char_num)
 
@@ -116,17 +128,74 @@ def build_graph():
 def train():
     output = build_graph()
     with tf.name_scope('Loss'):
-        loss = tf.losses.softmax_cross_entropy(logits=output, onehot_labels=tf_labels)
+        loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=output, onehot_labels=tf_labels))
+        tf.summary.scalar('loss', loss)
+
+    with tf.name_scope('Train_Op'):
+        train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss)
 
     with tf.name_scope('Accuracy'):
-        pass
+        _, accuracy_op = tf.metrics.accuracy(labels=tf_labels, predictions=output)
+        tf.summary.scalar('accuracy', accuracy_op)
 
+    init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+
+    merged = tf.summary.merge_all()
+
+    writer = tf.summary.FileWriter('./log')
+    saver = tf.train.Saver()
+
+    with tf.Session() as sess:
+        sess.run(init_op)
+        for step in range(FLAGS.train_step):
+            train_images, train_labels = next_batch(batch_size=FLAGS.batch_size)
+            _, train_loss, train_accuracy, result = sess.run([train_op, loss, accuracy_op, merged],
+                                                          feed_dict={
+                                                            tf_images:train_images,
+                                                            tf_labels:train_labels,
+                                                            keep_prob: FLAGS.keep_prob
+                                                          })
+            if step % 100 == 0:
+                validate_images, validate_lables = next_batch(30)
+                validate_accuracy = sess.run(accuracy_op, feed_dict={
+                    tf_images:validate_images,
+                    tf_labels:validate_lables,
+                    keep_prob:1,
+                })
+
+                print("""
+                step: {}
+                train_loss: {}, train_accuracy: {}
+                validate_accuracy: {}
+                ----------------------
+                """.format(step, train_loss, train_accuracy, validate_accuracy))
+                # save
+                saver.save(sess, './save/')
+                # summary
+                writer.add_summary(result, step)
+
+def predict(image):
+    output = build_graph()
+    with tf.Session() as sess:
+        saver.restore(sess, './save/')
+        prediction = sess.run(ouput, feed_dict={
+            tf_images=images,
+            keep_prob=1
+        })
+    return prdiction
+
+def predict_from_file(filepath):
+    image = Image.open(filepath)
+    img_array = np.array(img)
+    img_array = rgb2gray(img_array) / 255.
+    prediction = predict(img_array)
 
 def main(_):
-    images, labels = next_batch(1)
-    print(images.shape)
-    print(labels.shape)
-    print(vec2text(labels[0]))
+    if FLAGS.is_train:
+        train()
+    else:
+        filepath = ''
+        predict_from_file(filepath)
 
 
 if __name__ == '__main__':
