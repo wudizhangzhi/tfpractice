@@ -115,8 +115,10 @@ tests
 
 .idea
 *.tar.gz
+*.gz
 cifar-10-batches-py
 .DS_Store
 *.png
 log
 *.txt
+save
