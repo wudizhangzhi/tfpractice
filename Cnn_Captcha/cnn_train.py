@@ -10,11 +10,11 @@ flags.DEFINE_integer('train_step', 5000, '训练周期')
 flags.DEFINE_integer('captcha_width', 160, '验证码宽')
 flags.DEFINE_integer('captcha_height', 60, '验证码高')
 flags.DEFINE_integer('char_num', 4, '验证码字符数')
-flags.DEFINE_integer('batch_size', 32, '训练样本大小')
+flags.DEFINE_integer('batch_size', 64, '训练样本大小')
 # float
 flags.DEFINE_float('lr', 0.001, '学习率')
 flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
-flags.DEFINE_float('keep_prob', 0.9, '保留率')
+flags.DEFINE_float('keep_prob', 0.75, '保留率')
 # boolean
 flags.DEFINE_boolean('is_train', True, '是否是训练')
 FLAGS = flags.FLAGS
@@ -49,16 +49,12 @@ def next_batch(batch_size):
 # inputdata
 WIDTH, HEIGHT = FLAGS.captcha_width, FLAGS.captcha_height
 with tf.name_scope('Input'):
-    tf_images = tf.placeholder(dtype=tf.float32, shape=(None, WIDTH * HEIGHT), name='input_images')
+    tf_images = tf.placeholder(dtype=tf.float32, shape=(None, WIDTH * HEIGHT), name='input_images') / 255.
     tf_labels = tf.placeholder(dtype=tf.int8, shape=(None, TOTAL_NUM * FLAGS.char_num), name='input_labels')
     keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
-    tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
-
-
-
 def build_graph():
-
+    tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
     # convolution layer 1
     with tf.name_scope('Convolution_Layer_1'):
         conv1 = tf.layers.conv2d(
@@ -67,7 +63,9 @@ def build_graph():
             kernel_size=5,
             strides=1,
             padding='same',
-            activation=tf.nn.relu
+            activation=tf.nn.relu,
+            kernel_initializer=tf.random_normal_initializer(mean=0.01),
+            bias_initializer=tf.random_normal_initializer(mean=0.1)
         )  # (-1, 60, 160, 16)
 
         pool1 = tf.layers.max_pooling2d(
@@ -86,7 +84,9 @@ def build_graph():
             kernel_size=5,
             strides=1,
             padding='same',
-            activation=tf.nn.relu
+            activation=tf.nn.relu,
+            kernel_initializer=tf.random_normal_initializer(mean=0.01),
+            bias_initializer=tf.random_normal_initializer(mean=0.1)
         )  # (-1, 30, 80, 32)
 
         pool2 = tf.layers.max_pooling2d(
@@ -104,7 +104,9 @@ def build_graph():
             kernel_size=5,
             strides=1,
             padding='same',
-            activation=tf.nn.relu
+            activation=tf.nn.relu,
+            kernel_initializer=tf.random_normal_initializer(mean=0.01),
+            bias_initializer=tf.random_normal_initializer(mean=0.1)
         )  # (-1, 15, 40, 64)
 
         pool3 = tf.layers.max_pooling2d(
@@ -117,10 +119,21 @@ def build_graph():
     # dense layers
     with tf.name_scope('Dense_Layers'):
         reshaped = tf.reshape(pool3, (-1, np.prod(pool3.get_shape().as_list()[1:])))
-        dense1 = tf.layers.dense(reshaped, 1024)
+        dense1 = tf.layers.dense(
+            reshaped,
+            1024,
+            activation=tf.nn.relu,
+            kernel_initializer=tf.random_normal_initializer(mean=0.01),
+            bias_initializer=tf.random_normal_initializer(mean=0.1)
+        )
         dense1 = tf.nn.dropout(dense1, keep_prob)
 
-        output = tf.layers.dense(dense1, TOTAL_NUM * FLAGS.char_num)
+        output = tf.layers.dense(
+            dense1,
+            TOTAL_NUM * FLAGS.char_num,
+            kernel_initializer=tf.random_normal_initializer(mean=0.01),
+            bias_initializer=tf.random_normal_initializer(mean=0.1)
+        )
 
     return output
 
@@ -135,7 +148,10 @@ def train():
         train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss)
 
     with tf.name_scope('Accuracy'):
-        _, accuracy_op = tf.metrics.accuracy(labels=tf_labels, predictions=output)
+        tf_labels_reshaped = tf.reshape(tf_labels, (-1, TOTAL_NUM, FLAGS.char_num))
+        output_reshaped = tf.reshape(output, (-1, TOTAL_NUM, FLAGS.char_num))
+        _, accuracy_op = tf.metrics.accuracy(labels=tf.argmax(tf_labels_reshaped, axis=2),
+                                             predictions=tf.argmax(output_reshaped, axis=2))
         tf.summary.scalar('accuracy', accuracy_op)
 
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
@@ -156,7 +172,7 @@ def train():
                                                             keep_prob: FLAGS.keep_prob
                                                           })
             if step % 100 == 0:
-                validate_images, validate_lables = next_batch(30)
+                validate_images, validate_lables = next_batch(100)
                 validate_accuracy = sess.run(accuracy_op, feed_dict={
                     tf_images:validate_images,
                     tf_labels:validate_lables,
@@ -170,7 +186,8 @@ def train():
                 ----------------------
                 """.format(step, train_loss, train_accuracy, validate_accuracy))
                 # save
-                saver.save(sess, './save/')
+                if validate_accuracy > 0.5:
+                    saver.save(sess, './save/', global_step=step)
                 # summary
                 writer.add_summary(result, step)
 
@@ -179,8 +196,8 @@ def predict(image):
     with tf.Session() as sess:
         saver.restore(sess, './save/')
         prediction = sess.run(ouput, feed_dict={
-            tf_images=images,
-            keep_prob=1
+            tf_images:images,
+            keep_prob:1
         })
     return prdiction
 
