@@ -59,85 +59,93 @@ with tf.name_scope('Input'):
 def build_graph():
     tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
     # convolution layer 1
-
-    with tf.name_scope('Convolution_Layer_1'):
-        conv1 = tf.layers.conv2d(
-            tf_images_reshaped,
-            filters=16,
-            kernel_size=3,
-            strides=1,
-            padding='same',
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-            bias_initializer=tf.random_normal_initializer(stddev=0.1)
-        )  # (-1, 60, 160, 16)
-
-        pool1 = tf.layers.max_pooling2d(
-            conv1,
-            pool_size=(2, 2),
-            strides=(2, 2),
-            padding='same',
-        )  # (-1, 30, 80, 16)
-
-        pool1 = tf.nn.dropout(pool1, keep_prob)
-    # convolution layer 2
-    with tf.name_scope('Convolution_Layer_2'):
-        conv2 = tf.layers.conv2d(
-            pool1,
-            filters=32,
-            kernel_size=3,
-            strides=1,
-            padding='same',
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-            bias_initializer=tf.random_normal_initializer(stddev=0.1)
-        )  # (-1, 30, 80, 32)
-
-        pool2 = tf.layers.max_pooling2d(
-            conv2,
-            pool_size=(2, 2),
-            strides=(2, 2),
-            padding='same',
-        )  # (-1, 15, 40, 32)
-        pool2 = tf.nn.dropout(pool2, keep_prob)
-    # convolution layer 3
-    with tf.name_scope('Convolution_Layer_3'):
-        conv3 = tf.layers.conv2d(
-            pool2,
-            filters=64,
-            kernel_size=3,
-            strides=1,
-            padding='same',
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-            bias_initializer=tf.random_normal_initializer(stddev=0.1)
-        )  # (-1, 15, 40, 64)
-
-        pool3 = tf.layers.max_pooling2d(
-            conv3,
-            pool_size=(2, 2),
-            strides=(2, 2),
-            padding='same',
-        )  # (-1, 8, 20, 64)
-        pool3 = tf.nn.dropout(pool3, keep_prob)
-    # dense layers
-    with tf.name_scope('Dense_Layers'):
-        reshaped = tf.reshape(pool3, (-1, np.prod(pool3.get_shape().as_list()[1:])))
-        dense1 = tf.layers.dense(
-            reshaped,
-            1024,
-            activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-            bias_initializer=tf.random_normal_initializer(stddev=0.1)
-        )
-        dense1 = tf.nn.dropout(dense1, keep_prob)
-
-        output = tf.layers.dense(
-            dense1,
-            TOTAL_NUM * FLAGS.char_num,
-            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
-            bias_initializer=tf.random_normal_initializer(stddev=0.1),
-        )
+    batch_size = FLAGS.bathch_size
+    w_c1 = tf.Variable([3, 3, 1, 16], tf.truncated_normal_initializer(stddev=0.01))
+    b_c1 = tf.Variable([batch_size], tf.truncated_normal_initializer(stddev=0.1))
+    conv1 = tf.nn.conv2d(
+        tf_images_reshaped,
+        filter=[3, 3, 1, 16],
+        strides=[1, 1, 1, 1]
+    )
+    ###############
+    # with tf.name_scope('Convolution_Layer_1'):
+    #     conv1 = tf.layers.conv2d(
+    #         tf_images_reshaped,
+    #         filters=16,
+    #         kernel_size=3,
+    #         strides=1,
+    #         padding='same',
+    #         activation=tf.nn.relu,
+    #         kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+    #         bias_initializer=tf.random_normal_initializer(stddev=0.1)
+    #     )  # (-1, 60, 160, 16)
+    #
+    #     pool1 = tf.layers.max_pooling2d(
+    #         conv1,
+    #         pool_size=(2, 2),
+    #         strides=(2, 2),
+    #         padding='same',
+    #     )  # (-1, 30, 80, 16)
+    #
+    #     pool1 = tf.nn.dropout(pool1, keep_prob)
+    # # convolution layer 2
+    # with tf.name_scope('Convolution_Layer_2'):
+    #     conv2 = tf.layers.conv2d(
+    #         pool1,
+    #         filters=32,
+    #         kernel_size=3,
+    #         strides=1,
+    #         padding='same',
+    #         activation=tf.nn.relu,
+    #         kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+    #         bias_initializer=tf.random_normal_initializer(stddev=0.1)
+    #     )  # (-1, 30, 80, 32)
+    #
+    #     pool2 = tf.layers.max_pooling2d(
+    #         conv2,
+    #         pool_size=(2, 2),
+    #         strides=(2, 2),
+    #         padding='same',
+    #     )  # (-1, 15, 40, 32)
+    #     pool2 = tf.nn.dropout(pool2, keep_prob)
+    # # convolution layer 3
+    # with tf.name_scope('Convolution_Layer_3'):
+    #     conv3 = tf.layers.conv2d(
+    #         pool2,
+    #         filters=64,
+    #         kernel_size=3,
+    #         strides=1,
+    #         padding='same',
+    #         activation=tf.nn.relu,
+    #         kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+    #         bias_initializer=tf.random_normal_initializer(stddev=0.1)
+    #     )  # (-1, 15, 40, 64)
+    #
+    #     pool3 = tf.layers.max_pooling2d(
+    #         conv3,
+    #         pool_size=(2, 2),
+    #         strides=(2, 2),
+    #         padding='same',
+    #     )  # (-1, 8, 20, 64)
+    #     pool3 = tf.nn.dropout(pool3, keep_prob)
+    # # dense layers
+    # with tf.name_scope('Dense_Layers'):
+    #     reshaped = tf.reshape(pool3, (-1, np.prod(pool3.get_shape().as_list()[1:])))
+    #     dense1 = tf.layers.dense(
+    #         reshaped,
+    #         1024,
+    #         activation=tf.nn.relu,
+    #         kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+    #         bias_initializer=tf.random_normal_initializer(stddev=0.1)
+    #     )
+    #     dense1 = tf.nn.dropout(dense1, keep_prob)
+    #
+    #     output = tf.layers.dense(
+    #         dense1,
+    #         TOTAL_NUM * FLAGS.char_num,
+    #         kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+    #         bias_initializer=tf.random_normal_initializer(stddev=0.1),
+    #     )
     ################
     # w_alpha = 0.01
     # b_alpha = 0.1
