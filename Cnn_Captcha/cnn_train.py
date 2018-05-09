@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
+import os
 
 flags = tf.app.flags
 flags.DEFINE_integer('epoch_num', 2, '训练周期')
@@ -46,6 +47,7 @@ def next_batch(batch_size):
         i += 1
     return batch_imgs, batch_labels
 
+
 # inputdata
 WIDTH, HEIGHT = FLAGS.captcha_width, FLAGS.captcha_height
 with tf.name_scope('Input'):
@@ -53,19 +55,21 @@ with tf.name_scope('Input'):
     tf_labels = tf.placeholder(dtype=tf.int8, shape=(None, TOTAL_NUM * FLAGS.char_num), name='input_labels')
     keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
+
 def build_graph():
     tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
     # convolution layer 1
+
     with tf.name_scope('Convolution_Layer_1'):
         conv1 = tf.layers.conv2d(
             tf_images_reshaped,
             filters=16,
-            kernel_size=5,
+            kernel_size=3,
             strides=1,
             padding='same',
             activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0.01),
-            bias_initializer=tf.random_normal_initializer(mean=0.1)
+            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.random_normal_initializer(stddev=0.1)
         )  # (-1, 60, 160, 16)
 
         pool1 = tf.layers.max_pooling2d(
@@ -81,12 +85,12 @@ def build_graph():
         conv2 = tf.layers.conv2d(
             pool1,
             filters=32,
-            kernel_size=5,
+            kernel_size=3,
             strides=1,
             padding='same',
             activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0.01),
-            bias_initializer=tf.random_normal_initializer(mean=0.1)
+            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.random_normal_initializer(stddev=0.1)
         )  # (-1, 30, 80, 32)
 
         pool2 = tf.layers.max_pooling2d(
@@ -101,20 +105,20 @@ def build_graph():
         conv3 = tf.layers.conv2d(
             pool2,
             filters=64,
-            kernel_size=5,
+            kernel_size=3,
             strides=1,
             padding='same',
             activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0.01),
-            bias_initializer=tf.random_normal_initializer(mean=0.1)
+            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.random_normal_initializer(stddev=0.1)
         )  # (-1, 15, 40, 64)
 
         pool3 = tf.layers.max_pooling2d(
             conv3,
-            pool_size=(3, 2),
-            strides=(3, 2),
+            pool_size=(2, 2),
+            strides=(2, 2),
             padding='same',
-        )  # (-1, 5, 20, 64)
+        )  # (-1, 8, 20, 64)
         pool3 = tf.nn.dropout(pool3, keep_prob)
     # dense layers
     with tf.name_scope('Dense_Layers'):
@@ -123,17 +127,50 @@ def build_graph():
             reshaped,
             1024,
             activation=tf.nn.relu,
-            kernel_initializer=tf.random_normal_initializer(mean=0.01),
-            bias_initializer=tf.random_normal_initializer(mean=0.1)
+            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.random_normal_initializer(stddev=0.1)
         )
         dense1 = tf.nn.dropout(dense1, keep_prob)
 
         output = tf.layers.dense(
             dense1,
             TOTAL_NUM * FLAGS.char_num,
-            kernel_initializer=tf.random_normal_initializer(mean=0.01),
-            bias_initializer=tf.random_normal_initializer(mean=0.1)
+            kernel_initializer=tf.random_normal_initializer(stddev=0.01),
+            bias_initializer=tf.random_normal_initializer(stddev=0.1),
         )
+    ################
+    # w_alpha = 0.01
+    # b_alpha = 0.1
+    # # 3 conv layer # 3 个 转换层
+    # w_c1 = tf.Variable(w_alpha * tf.random_normal([3, 3, 1, 32]))
+    # b_c1 = tf.Variable(b_alpha * tf.random_normal([32]))
+    # conv1 = tf.nn.relu(tf.nn.bias_add(tf.nn.conv2d(tf_images_reshaped, w_c1, strides=[1, 1, 1, 1], padding='SAME'), b_c1))
+    # conv1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    # conv1 = tf.nn.dropout(conv1, keep_prob)
+    #
+    # w_c2 = tf.Variable(w_alpha * tf.random_normal([3, 3, 32, 64]))
+    # b_c2 = tf.Variable(b_alpha * tf.random_normal([64]))
+    # conv2 = tf.nn.relu(tf.nn.bias_add(tf.nn.conv2d(conv1, w_c2, strides=[1, 1, 1, 1], padding='SAME'), b_c2))
+    # conv2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    # conv2 = tf.nn.dropout(conv2, keep_prob)
+    #
+    # w_c3 = tf.Variable(w_alpha * tf.random_normal([3, 3, 64, 64]))
+    # b_c3 = tf.Variable(b_alpha * tf.random_normal([64]))
+    # conv3 = tf.nn.relu(tf.nn.bias_add(tf.nn.conv2d(conv2, w_c3, strides=[1, 1, 1, 1], padding='SAME'), b_c3))
+    # conv3 = tf.nn.max_pool(conv3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    # conv3 = tf.nn.dropout(conv3, keep_prob)
+    #
+    # # Fully connected layer  # 最后连接层
+    # w_d = tf.Variable(w_alpha * tf.random_normal([8 * 20 * 64, 1024]))
+    # b_d = tf.Variable(b_alpha * tf.random_normal([1024]))
+    # dense = tf.reshape(conv3, [-1, w_d.get_shape().as_list()[0]])
+    # dense = tf.nn.relu(tf.add(tf.matmul(dense, w_d), b_d))
+    # dense = tf.nn.dropout(dense, keep_prob)
+    #
+    # # 输出层
+    # w_out = tf.Variable(w_alpha * tf.random_normal([1024, TOTAL_NUM * FLAGS.char_num]))
+    # b_out = tf.Variable(b_alpha * tf.random_normal([TOTAL_NUM * FLAGS.char_num]))
+    # output = tf.add(tf.matmul(dense, w_out), b_out)
 
     return output
 
@@ -141,17 +178,22 @@ def build_graph():
 def train():
     output = build_graph()
     with tf.name_scope('Loss'):
-        loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=output, onehot_labels=tf_labels))
+        # loss = tf.reduce_mean(tf.losses.softmax_cross_entropy(logits=output, onehot_labels=tf_labels))
+        loss = tf.reduce_mean(tf.losses.sigmoid_cross_entropy(logits=output, multi_class_labels=tf_labels))
         tf.summary.scalar('loss', loss)
 
     with tf.name_scope('Train_Op'):
         train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss)
 
     with tf.name_scope('Accuracy'):
-        tf_labels_reshaped = tf.reshape(tf_labels, (-1, TOTAL_NUM, FLAGS.char_num))
-        output_reshaped = tf.reshape(output, (-1, TOTAL_NUM, FLAGS.char_num))
-        _, accuracy_op = tf.metrics.accuracy(labels=tf.argmax(tf_labels_reshaped, axis=2),
-                                             predictions=tf.argmax(output_reshaped, axis=2))
+        tf_labels_reshaped = tf.reshape(tf_labels, (-1, FLAGS.char_num, TOTAL_NUM))
+        output_reshaped = tf.reshape(output, (-1, FLAGS.char_num, TOTAL_NUM))
+        # _, accuracy_op = tf.metrics.accuracy(labels=tf.argmax(tf_labels_reshaped, axis=2),
+        #                                      predictions=tf.argmax(output_reshaped, axis=2))
+        max_idx_labels = tf.argmax(tf_labels_reshaped, axis=2)
+        max_idx_output = tf.argmax(output_reshaped, axis=2)
+        correct_pred = tf.equal(max_idx_labels, max_idx_output)
+        accuracy_op = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
         tf.summary.scalar('accuracy', accuracy_op)
 
     init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
@@ -166,17 +208,17 @@ def train():
         for step in range(FLAGS.train_step):
             train_images, train_labels = next_batch(batch_size=FLAGS.batch_size)
             _, train_loss, train_accuracy, result = sess.run([train_op, loss, accuracy_op, merged],
-                                                          feed_dict={
-                                                            tf_images:train_images,
-                                                            tf_labels:train_labels,
-                                                            keep_prob: FLAGS.keep_prob
-                                                          })
+                                                             feed_dict={
+                                                                 tf_images: train_images,
+                                                                 tf_labels: train_labels,
+                                                                 keep_prob: FLAGS.keep_prob
+                                                             })
             if step % 100 == 0:
                 validate_images, validate_lables = next_batch(100)
                 validate_accuracy = sess.run(accuracy_op, feed_dict={
-                    tf_images:validate_images,
-                    tf_labels:validate_lables,
-                    keep_prob:1,
+                    tf_images: validate_images,
+                    tf_labels: validate_lables,
+                    keep_prob: 1,
                 })
 
                 print("""
@@ -191,21 +233,26 @@ def train():
                 # summary
                 writer.add_summary(result, step)
 
+
 def predict(image):
     output = build_graph()
+    saver = tf.train.Saver()
     with tf.Session() as sess:
         saver.restore(sess, './save/')
-        prediction = sess.run(ouput, feed_dict={
-            tf_images:images,
-            keep_prob:1
+        prediction = sess.run(output, feed_dict={
+            tf_images: image,
+            keep_prob: 1
         })
-    return prdiction
+    return prediction
+
 
 def predict_from_file(filepath):
     image = Image.open(filepath)
-    img_array = np.array(img)
+    img_array = np.array(image)
     img_array = rgb2gray(img_array) / 255.
     prediction = predict(img_array)
+    return prediction
+
 
 def main(_):
     if FLAGS.is_train:
