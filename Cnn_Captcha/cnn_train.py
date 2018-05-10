@@ -30,8 +30,8 @@ def text2vec(text):
 
 
 def vec2text(vec):
-    pos_list = vec.nonzero()[0]
-    return ''.join((TEMPLATE[pos % TOTAL_NUM] for pos in pos_list))
+    # pos_list = vec.nonzero()[0]
+    return ''.join((TEMPLATE[pos % TOTAL_NUM] for pos in vec))
 
 
 def next_batch(batch_size):
@@ -59,14 +59,57 @@ with tf.name_scope('Input'):
 def build_graph():
     tf_images_reshaped = tf.reshape(tf_images, (-1, HEIGHT, WIDTH, 1))  # (-1, 60, 160, 1)
     # convolution layer 1
-    batch_size = FLAGS.bathch_size
-    w_c1 = tf.Variable([3, 3, 1, 16], tf.truncated_normal_initializer(stddev=0.01))
-    b_c1 = tf.Variable([batch_size], tf.truncated_normal_initializer(stddev=0.1))
+    batch_size = FLAGS.batch_size
+    w_alpha = 0.01
+    b_alpha = 0.1
+    w_c1 = tf.Variable(w_alpha * tf.random_normal([3, 3, 1, 32]))
+    b_c1 = tf.Variable(b_alpha * tf.random_normal([32]))
     conv1 = tf.nn.conv2d(
         tf_images_reshaped,
-        filter=[3, 3, 1, 16],
-        strides=[1, 1, 1, 1]
-    )
+        filter=w_c1,
+        strides=[1, 1, 1, 1],
+        padding='SAME'
+    )  # (-1, 60 ,160 ,16)
+    conv1 = tf.nn.relu(tf.nn.bias_add(conv1, b_c1))
+    conv1 = tf.nn.max_pool(conv1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')  # (-1, 30 , 80, 16)
+    conv1 = tf.nn.dropout(conv1, keep_prob)
+
+    w_c2 = tf.Variable(w_alpha * tf.random_normal([3, 3, 32, 64]))
+    b_c2 = tf.Variable(b_alpha * tf.random_normal([64]))
+    conv2 = tf.nn.conv2d(
+        conv1,
+        filter=w_c2,
+        strides=[1, 1, 1, 1],
+        padding='SAME'
+    )  # (-1, 30, 80, 32)
+    conv2 = tf.nn.relu(tf.nn.bias_add(conv2, b_c2))
+    conv2 = tf.nn.max_pool(conv2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')  # (-1, 15, 40 ,32)
+    conv2 = tf.nn.dropout(conv2, keep_prob)
+
+    w_c3 = tf.Variable(w_alpha * tf.random_normal([3, 3, 64, 64]))
+    b_c3 = tf.Variable(b_alpha * tf.random_normal([64]))
+    conv3 = tf.nn.conv2d(
+        conv2,
+        filter=w_c3,
+        strides=[1, 1, 1, 1],
+        padding='SAME'
+    )  # (-1, 15, 40, 64)
+    conv3 = tf.nn.relu(tf.nn.bias_add(conv3, b_c3))
+    conv3 = tf.nn.max_pool(conv3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')  # (-1, 8, 20 ,64)
+    conv3 = tf.nn.dropout(conv3, keep_prob)
+
+    # full connect
+    dim = np.prod(conv3.get_shape().as_list()[1:])
+    conv3_flatten = tf.reshape(conv3, (-1, dim))
+    w_f1 = tf.Variable(w_alpha * tf.random_normal([dim, 1024]))
+    b_f1 = tf.Variable(b_alpha * tf.random_normal([1024]))
+    dense = tf.nn.relu(tf.add(tf.matmul(conv3_flatten, w_f1), b_f1))
+    dense = tf.nn.dropout(dense, keep_prob)
+
+    w_f2 = tf.Variable(w_alpha * tf.random_normal([1024, FLAGS.char_num * TOTAL_NUM]))
+    b_f2 = tf.Variable(b_alpha * tf.random_normal([FLAGS.char_num * TOTAL_NUM]))
+    output = tf.add(tf.matmul(dense, w_f2), b_f2)
+
     ###############
     # with tf.name_scope('Convolution_Layer_1'):
     #     conv1 = tf.layers.conv2d(
@@ -209,7 +252,7 @@ def train():
     merged = tf.summary.merge_all()
 
     writer = tf.summary.FileWriter('./log')
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(max_to_keep=4)
 
     with tf.Session() as sess:
         sess.run(init_op)
@@ -245,20 +288,28 @@ def train():
 def predict(image):
     output = build_graph()
     saver = tf.train.Saver()
+    prediction = tf.reshape(output, (-1, FLAGS.char_num, TOTAL_NUM))
+    prediction = tf.argmax(prediction, axis=2)
     with tf.Session() as sess:
-        saver.restore(sess, './save/')
-        prediction = sess.run(output, feed_dict={
+        saver.restore(sess, tf.train.latest_checkpoint('./save/'))
+        prediction_results = sess.run(prediction, feed_dict={
             tf_images: image,
             keep_prob: 1
         })
-    return prediction
+        print('prediction_results: {}'.format(prediction_results))
+        prediction_text_list = []
+        for prediction_result in prediction_results:
+            prediction_text_list.append(vec2text(prediction_result))
+    return prediction_text_list
 
 
 def predict_from_file(filepath):
     image = Image.open(filepath)
     img_array = np.array(image)
     img_array = rgb2gray(img_array) / 255.
-    prediction = predict(img_array)
+    input = np.zeros([1, FLAGS.captcha_width * FLAGS.captcha_height])
+    input[0, :] = img_array.flatten()
+    prediction = predict(input)
     return prediction
 
 
@@ -266,8 +317,10 @@ def main(_):
     if FLAGS.is_train:
         train()
     else:
-        filepath = ''
-        predict_from_file(filepath)
+        print('开始预测')
+        filepath = 'output.png'
+        result = predict_from_file(filepath)
+        print(result)
 
 
 if __name__ == '__main__':
