@@ -122,3 +122,4 @@ cifar-10-batches-py
 log
 *.txt
 save
+data
