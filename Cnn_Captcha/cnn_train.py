@@ -1,3 +1,6 @@
+from io import BytesIO
+import requests
+
 from generate_captcha import generate_gray_captcha, TOTAL_NUM, TEMPLATE, rgb2gray
 import tensorflow as tf
 import numpy as np
@@ -18,6 +21,8 @@ flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
 flags.DEFINE_float('keep_prob', 0.75, '保留率')
 # boolean
 flags.DEFINE_boolean('is_train', True, '是否是训练')
+# string
+flags.DEFINE_string('path', 'output.png', '图像地址或者网址')
 FLAGS = flags.FLAGS
 
 
@@ -303,9 +308,12 @@ def predict(image):
     return prediction_text_list
 
 
-def predict_from_file(filepath):
-    image = Image.open(filepath)
-    img_array = np.array(image)
+def predict_from_file(file):
+    if file.startswith('http'):
+        file = BytesIO(requests.get(file, verify=False).content)
+    image = Image.open(file)
+    img_resized = image.resize((160, 60))
+    img_array = np.array(img_resized)
     img_array = rgb2gray(img_array) / 255.
     input = np.zeros([1, FLAGS.captcha_width * FLAGS.captcha_height])
     input[0, :] = img_array.flatten()
@@ -318,8 +326,8 @@ def main(_):
         train()
     else:
         print('开始预测')
-        filepath = 'output.png'
-        result = predict_from_file(filepath)
+
+        result = predict_from_file(FLAGS.path)
         print(result)
 
 
