@@ -1,17 +1,21 @@
 import numpy as np
 import tensorflow as tf
 
+
 def unpickle(file):
     import pickle
     with open(file, 'rb') as fo:
         dict = pickle.load(fo, encoding='bytes')
     return dict
 
+
 def handler_images_data(proto):
     # return np.vstack((proto[:, :1024], proto[:, 1024:1024*2], proto[:, 1024*2:1024*3])).T.reshape((-1, 32, 32, 3))
     return np.transpose(proto.reshape((-1, 3, 1024)), axes=[0, 2, 1]).reshape((-1, 32, 32, 3))
 
+
 def produce_test_data(testfilename):
+    print('导入测试数据')
     # test data
     d_data = unpickle(testfilename)
     batch_labels = d_data[b'labels']
@@ -23,7 +27,9 @@ def produce_test_data(testfilename):
     dataset_test = tf.contrib.data.Dataset.from_tensor_slices((batch_images, batch_labels))
     return dataset_test
 
+
 def produce_data(filelist, testfilename, label_name_file=None):
+    print('导入训练数据')
     assert isinstance(filelist, list)
     assert len(filelist) > 0
     labels_list = []
@@ -45,7 +51,7 @@ def produce_data(filelist, testfilename, label_name_file=None):
     data_set = tf.contrib.data.Dataset.from_tensor_slices((images, labels))
 
     # test data
-    produce_test_data(testfilename)
+    dataset_test = produce_test_data(testfilename)
 
     # 处理名称 label_names
     label_names = []
@@ -57,7 +63,6 @@ def produce_data(filelist, testfilename, label_name_file=None):
             label_names = d_data[b'label_names']
 
     return data_set, dataset_test, label_names
-
 
 
 if __name__ == '__main__':
