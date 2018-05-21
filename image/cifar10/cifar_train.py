@@ -185,8 +185,51 @@ def train():
             step += 1
 
 
+def predict(images):
+    print('开始预测')
+    labels = generate_data.unpickle('data/batches.meta')[b'label_names']
+    print(labels)
+    import matplotlib.pyplot as plt
+    output = build_graph()
+    # 恢复session
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        saver.restore(sess, tf.train.latest_checkpoint('./save/'))
+        predicts = sess.run(output, feed_dict={
+            tf_images: images,
+            keep_prob: 1
+        })
+        predict_map = zip(images, predicts)
+        count = len(images)
+        if count > 2:
+            col_num = round(count // 2)
+            fig, ax = plt.subplots(2, col_num)
+            index = 0
+            for img, pred in predict_map:
+                fig_sub = ax[index // col_num, index % col_num]
+                fig_sub.imshow(img)
+                fig_sub.set_title(labels[np.argmax(pred)])
+                index += 1
+            plt.show()
+        else:
+            print(labels[np.argmax(predicts[0])])
+
+
+def random_predict(num=6):
+    test_images, test_lables = generate_data.produce_one_file('data/test_batch')
+    total = len(test_images)
+    indexes = np.random.choice(total, num, replace=False)
+    choice_imgs = test_images[indexes]
+    choice_labels = test_lables[indexes]
+
+    predict(choice_imgs)
+
+
 def main(_):
-    train()
+    if FLAGS.is_train:
+        train()
+    else:
+        random_predict()
 
 
 if __name__ == '__main__':
