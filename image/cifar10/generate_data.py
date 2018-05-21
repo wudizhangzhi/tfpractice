@@ -24,8 +24,22 @@ def produce_test_data(testfilename):
     assert len(batch_labels) == len(batch_images)
     batch_labels = np.array(batch_labels)[:, np.newaxis]
     batch_images = handler_images_data(batch_images)
-    dataset_test = tf.contrib.data.Dataset.from_tensor_slices((batch_images, batch_labels))
+    dataset_test = tf.data.Dataset.from_tensor_slices((batch_images, batch_labels))
     return dataset_test
+
+
+def produce_one_file(filename):
+    d_data = unpickle(filename)
+    batch_labels = d_data[b'labels']
+    batch_images = d_data[b'data']
+
+    assert len(batch_labels) == len(batch_images)
+    # TODO update to one-hot
+    batch_size = len(batch_labels)
+    one_hot_lables = np.zeros((batch_size, 10))
+    one_hot_lables[np.arange(0, batch_size), batch_labels] = 1
+    batch_images = handler_images_data(batch_images)
+    return batch_images, one_hot_lables
 
 
 def produce_data(filelist, testfilename, label_name_file=None):
@@ -35,23 +49,20 @@ def produce_data(filelist, testfilename, label_name_file=None):
     labels_list = []
     images_list = []
     for filename in filelist:
-        d_data = unpickle(filename)
-        batch_labels = d_data[b'labels']
-        batch_images = d_data[b'data']
-
-        assert len(batch_labels) == len(batch_images)
-        batch_labels = np.array(batch_labels)[:, np.newaxis]
-        labels_list.append(batch_labels)
+        batch_images, one_hot_lables = produce_one_file(filename)
+        labels_list.append(one_hot_lables)
         batch_images = handler_images_data(batch_images)
         images_list.append(batch_images)
 
     images = np.vstack(images_list)
     labels = np.vstack(labels_list)
     # self.data_set = tf.contrib.data.Dataset.zip(dataset_list)
-    data_set = tf.contrib.data.Dataset.from_tensor_slices((images, labels))
+    data_set = tf.data.Dataset.from_tensor_slices((images, labels))
 
     # test data
-    dataset_test = produce_test_data(testfilename)
+    # dataset_test = produce_test_data(testfilename)
+    test_images, test_lables = produce_one_file(testfilename)
+    dataset_test = tf.data.Dataset.from_tensor_slices((test_images, test_lables))
 
     # 处理名称 label_names
     label_names = []
