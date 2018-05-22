@@ -2,6 +2,11 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+
+import time
+import datetime
+from tensorflow.python.framework.errors_impl import OutOfRangeError
+
 import generate_data
 
 flags = tf.app.flags
@@ -14,7 +19,7 @@ flags.DEFINE_integer('width', 32, '验证码宽')
 flags.DEFINE_integer('height', 32, '验证码高')
 flags.DEFINE_integer('channel', 3, 'channels')
 flags.DEFINE_integer('classes', 10, '总类别')
-flags.DEFINE_integer('batch_size', 64, '训练样本大小')
+flags.DEFINE_integer('batch_size', 128, '训练样本大小')
 # float
 flags.DEFINE_float('lr', 0.001, '学习率')
 flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
@@ -155,12 +160,19 @@ def train():
     saver = tf.train.Saver(max_to_keep=2)
 
     with tf.Session() as sess:
+        start_time = datetime.datetime.now()
         sess.run(init_op)
         # Initialize an iterator over a dataset with 10 elements.
         sess.run([iterator.initializer, iterator_test.initializer])
-        while step < FLAGS.train_step:
-            # train batch data
-            batch_image, batch_labels = sess.run(next_element)
+        # while step < FLAGS.train_step:
+        while True:
+            try:
+                # train batch data
+                batch_image, batch_labels = sess.run(next_element)
+            except OutOfRangeError:
+                print('训练结束: 一共step：{}, 用时: {}'.format(step,
+                                                       datetime.datetime.now() - start_time))
+                break
 
             _, _loss, _accuracy, _summary = sess.run([train_op, loss, accuracy_op, merged],
                                                      feed_dict={tf_images: batch_image,
@@ -168,15 +180,18 @@ def train():
                                                                 keep_prob: 0.9})
             if step % 100 == 0:
                 batch_image_test, batch_labels_test = sess.run(next_element_test)
-                _accuracy_test = sess.run(accuracy_op, feed_dict={tf_images: batch_image_test,
-                                                                  tf_labels: batch_labels_test,
-                                                                  keep_prob: 1})
+                _accuracy_test, _lr = sess.run([accuracy_op, LR_decay_op],
+                                               feed_dict={
+                                                   tf_images: batch_image_test,
+                                                   tf_labels: batch_labels_test,
+                                                   keep_prob: 1
+                                               })
                 print('''
                 --------------
-                step: {}
+                step: {}, lr: {}
                 train_loss: {}, train_accuracy: {}
                 test_accuracy: {}
-                '''.format(step, _loss, _accuracy, _accuracy_test))
+                '''.format(step, _lr, _loss, _accuracy, _accuracy_test))
                 # summary
                 writer.add_summary(_summary, step)
                 # save
