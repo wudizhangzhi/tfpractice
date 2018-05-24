@@ -41,8 +41,10 @@ def build_graph():
     w_alpha = 0.01
     b_alpha = 0.1
     # conv2d
-    w_c1 = tf.Variable(w_alpha * tf.random_normal([3, 3, 3, 32]))
-    b_c1 = tf.Variable(b_alpha * tf.random_normal([32]))
+    # w_c1 = tf.get_variable('w_c1', w_alpha * tf.random_normal([3, 3, 3, 32]))
+    # b_c1 = tf.get_variable('b_c1', b_alpha * tf.random_normal([32]))
+    w_c1 = tf.get_variable('w_c1', shape=[3, 3, 3, 32], initializer=tf.truncated_normal_initializer(stddev=0.01))
+    b_c1 = tf.get_variable('b_c1', shape=[32], initializer=tf.constant_initializer(0.0))
     conv1 = tf.nn.conv2d(
         tf_images,
         filter=w_c1,
@@ -58,8 +60,10 @@ def build_graph():
     )  # (-1, 16, 16, 32)
     conv1 = tf.nn.dropout(conv1, keep_prob)
 
-    w_c2 = tf.Variable(w_alpha * tf.random_normal([3, 3, 32, 64]))
-    b_c2 = tf.Variable(b_alpha * tf.random_normal([64]))
+    # w_c2 = tf.Variable(w_alpha * tf.random_normal([3, 3, 32, 64]))
+    # b_c2 = tf.Variable(b_alpha * tf.random_normal([64]))
+    w_c2 = tf.get_variable('w_c2', shape=[3, 3, 32, 64], initializer=tf.truncated_normal_initializer(stddev=0.01))
+    b_c2 = tf.get_variable('b_c2', shape=[64], initializer=tf.constant_initializer(0.0))
     conv2 = tf.nn.conv2d(
         conv1,
         filter=w_c2,
@@ -75,8 +79,10 @@ def build_graph():
     )  # (-1, 8, 8, 64)
     conv2 = tf.nn.dropout(conv2, keep_prob)
 
-    w_c3 = tf.Variable(w_alpha * tf.random_normal([3, 3, 64, 128]))
-    b_c3 = tf.Variable(b_alpha * tf.random_normal([128]))
+    # w_c3 = tf.Variable(w_alpha * tf.random_normal([3, 3, 64, 128]))
+    # b_c3 = tf.Variable(b_alpha * tf.random_normal([128]))
+    w_c3 = tf.get_variable('w_c3', shape=[3, 3, 64, 128], initializer=tf.truncated_normal_initializer(stddev=0.01))
+    b_c3 = tf.get_variable('b_c3', shape=[128], initializer=tf.constant_initializer(0.0))
     conv3 = tf.nn.conv2d(
         conv2,
         filter=w_c3,
@@ -95,13 +101,17 @@ def build_graph():
     # dense
     dim = np.prod(conv3.get_shape().as_list()[1:])
     conv3_flatten = tf.reshape(conv3, [-1, dim])
-    w_f1 = tf.Variable(w_alpha * tf.random_normal([dim, 1024]))
-    b_f1 = tf.Variable(b_alpha * tf.random_normal([1024]))
+    # w_f1 = tf.Variable(w_alpha * tf.random_normal([dim, 1024]))
+    # b_f1 = tf.Variable(b_alpha * tf.random_normal([1024]))
+    w_f1 = tf.get_variable('w_f1', shape=[dim, 1024], initializer=tf.truncated_normal_initializer(stddev=0.01))
+    b_f1 = tf.get_variable('b_f1', shape=[1024], initializer=tf.constant_initializer(0.0))
     dense = tf.nn.relu(tf.add(tf.matmul(conv3_flatten, w_f1), b_f1))
     dense = tf.nn.dropout(dense, keep_prob=keep_prob)
 
-    w_f2 = tf.Variable(w_alpha * tf.random_normal([1024, FLAGS.classes]))
-    b_f2 = tf.Variable(b_alpha * tf.random_normal([FLAGS.classes]))
+    # w_f2 = tf.Variable(w_alpha * tf.random_normal([1024, FLAGS.classes]))
+    # b_f2 = tf.Variable(b_alpha * tf.random_normal([FLAGS.classes]))
+    w_f2 = tf.get_variable('w_f2', shape=[1024, FLAGS.classes], initializer=tf.truncated_normal_initializer(stddev=0.01))
+    b_f2 = tf.get_variable('b_f2', shape=[FLAGS.classes], initializer=tf.constant_initializer(0.0))
     output = tf.add(tf.matmul(dense, w_f2), b_f2)
     return output
 
@@ -161,7 +171,7 @@ def train():
     merged = tf.summary.merge_all()
 
     writer = tf.summary.FileWriter('./log')
-    saver = tf.train.Saver(max_to_keep=2)
+    saver = tf.train.Saver()
 
     with tf.Session() as sess:
         start_time = datetime.datetime.now()
@@ -202,7 +212,7 @@ def train():
                 writer.add_summary(_summary, _global_step)
                 # save
                 if _accuracy_test > 0.4:
-                    saver.save(sess, './save/', global_step=global_step)
+                    saver.save(sess, './save/', global_step=global_step, write_meta_graph=False)
             # step += 1
 
 
@@ -215,8 +225,6 @@ def predict(images, test_labels=None, is_plt=False):
     # 恢复session
     saver = tf.train.Saver()
     with tf.Session() as sess:
-        init_op = tf.group(tf.local_variables_initializer(), tf.global_variables_initializer())
-        sess.run(init_op)
         saver.restore(sess, tf.train.latest_checkpoint('./save/'))
         predicts = sess.run(output, feed_dict={
             tf_images: images,
@@ -231,7 +239,7 @@ def predict(images, test_labels=None, is_plt=False):
                 index = 0
                 for img, pred in predict_map:
                     if labels:
-                        label = labels[np.argmax(test_labels[index])]
+                        label = labels[test_labels[index]]
                     else:
                         label = ''
                     fig_sub = ax[index // col_num, index % col_num]
@@ -250,10 +258,11 @@ def random_predict(num=6):
     total = len(test_images)
     indexes = np.random.choice(total, num, replace=False)
     choice_imgs = test_images[indexes]
-    choice_labels = test_lables[indexes]
+    # choice_labels = test_lables[indexes]
+    choice_labels = [test_lables[i] for i in indexes]
 
     results = predict(choice_imgs, choice_labels, is_plt=FLAGS.is_plt)
-    accuracy = np.equal(np.argmax(results, axis=1), np.argmax(choice_labels, axis=1))
+    accuracy = np.equal(np.argmax(results, axis=1), choice_labels)
     # print(accuracy)
     accuracy = np.sum(accuracy) * 100.0 / num
     print(accuracy)
