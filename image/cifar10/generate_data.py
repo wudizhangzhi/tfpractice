@@ -28,7 +28,7 @@ def produce_test_data(testfilename):
     return dataset_test
 
 
-def produce_one_file(filename):
+def produce_one_file(filename, one_hot=False):
     d_data = unpickle(filename)
     batch_labels = d_data[b'labels']
     batch_images = d_data[b'data']
@@ -36,10 +36,12 @@ def produce_one_file(filename):
     assert len(batch_labels) == len(batch_images)
     # TODO update to one-hot
     batch_size = len(batch_labels)
-    one_hot_lables = np.zeros((batch_size, 10))
-    one_hot_lables[np.arange(0, batch_size), batch_labels] = 1
+    if one_hot:
+        one_hot_lables = np.zeros((batch_size, 10))
+        one_hot_lables[np.arange(0, batch_size), batch_labels] = 1
+        batch_labels = one_hot_lables
     batch_images = handler_images_data(batch_images)
-    return batch_images, one_hot_lables
+    return batch_images, batch_labels
 
 
 def produce_data(filelist, testfilename, label_name_file=None):

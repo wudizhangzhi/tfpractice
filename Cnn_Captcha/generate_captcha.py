@@ -31,6 +31,7 @@ def generate_gray_captcha(num=4, size=(160, 60)):
     img_array = rgb2gray(img_array) / 255.
     return img_array, text
 
+
 def save_captcha_random(num=4, size=(160, 60), output='output.png'):
     width, height = size
     captcha = ImageCaptcha(width=width, height=height)  # (160, 60, 3)
@@ -39,6 +40,7 @@ def save_captcha_random(num=4, size=(160, 60), output='output.png'):
     captcha_image = captcha.generate(text)
     img = Image.open(captcha_image)
     img.save(output)
+
 
 if __name__ == "__main__":
     save_captcha_random()

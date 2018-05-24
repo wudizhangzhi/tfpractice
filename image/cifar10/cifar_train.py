@@ -15,11 +15,12 @@ flags.DEFINE_string('datapath', 'data', '数据路径')
 # integer
 flags.DEFINE_integer('epoch_num', 10, '训练周期')
 flags.DEFINE_integer('train_step', 5000, '训练周期')
-flags.DEFINE_integer('width', 32, '验证码宽')
-flags.DEFINE_integer('height', 32, '验证码高')
+flags.DEFINE_integer('width', 32, '宽')
+flags.DEFINE_integer('height', 32, '高')
 flags.DEFINE_integer('channel', 3, 'channels')
 flags.DEFINE_integer('classes', 10, '总类别')
 flags.DEFINE_integer('batch_size', 128, '训练样本大小')
+flags.DEFINE_integer('predict_num', 10, '预测数量')
 # float
 flags.DEFINE_float('lr', 0.001, '学习率')
 flags.DEFINE_float('lr_decay', 0.9, '学习率衰退率')
@@ -27,11 +28,12 @@ flags.DEFINE_float('lr_decay_step', 5000, '学习率衰退率')
 flags.DEFINE_float('keep_prob', 0.75, '保留率')
 # boolean
 flags.DEFINE_boolean('is_train', True, '是否是训练')
+flags.DEFINE_boolean('is_plt', False, '是否显示图表')
 FLAGS = flags.FLAGS
 
 # placeholder
 tf_images = tf.placeholder(tf.float32, (None, FLAGS.width, FLAGS.height, FLAGS.channel))
-tf_labels = tf.placeholder(tf.int8, (None, FLAGS.classes))
+tf_labels = tf.placeholder(tf.int8, (None, 1))
 keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
 
@@ -115,11 +117,11 @@ def train_data():
     dataset_train = dataset_train.batch(FLAGS.batch_size)
     dataset_train = dataset_train.shuffle(buffer_size=10000)
     dataset_train = dataset_train.repeat(FLAGS.epoch_num)
-    dataset_train = dataset_train.repeat()
     iterator = dataset_train.make_initializable_iterator()
     next_element = iterator.get_next()
 
     dataset_test = dataset_test.batch(1000)
+    dataset_test = dataset_test.shuffle(buffer_size=1000)
     dataset_test = dataset_test.repeat()
     iterator_test = dataset_test.make_initializable_iterator()
     next_element_test = iterator_test.get_next()
@@ -134,21 +136,23 @@ def train():
     # TODO try one-hot
     # output_argmaxed = tf.argmax(output, axis=1)
     with tf.name_scope('Loss'):
-        loss = tf.reduce_mean(tf.losses.sigmoid_cross_entropy(logits=output, multi_class_labels=tf_labels))
+        # loss = tf.reduce_mean(tf.losses.sigmoid_cross_entropy(logits=output, multi_class_labels=tf_labels))
+        loss = tf.reduce_mean(tf.losses.sparse_softmax_cross_entropy(logits=output,
+                                                                     labels=tf_labels))
         tf.summary.scalar('train_loss', loss)
 
     with tf.name_scope('Train'):
-        step = 0
+        global_step = tf.Variable(0, trainable=False)
         LR_decay_op = tf.train.exponential_decay(FLAGS.lr,
-                                                 step,
+                                                 global_step,
                                                  FLAGS.lr_decay_step,
                                                  FLAGS.lr_decay,
                                                  staircase=True)
 
-    train_op = tf.train.AdamOptimizer(LR_decay_op).minimize(loss)
+        train_op = tf.train.AdamOptimizer(LR_decay_op).minimize(loss, global_step=global_step)
 
     with tf.name_scope('Accuracy'):
-        _, accuracy_op = tf.metrics.accuracy(labels=tf.argmax(tf_labels, axis=1),
+        _, accuracy_op = tf.metrics.accuracy(labels=tf_labels,
                                              predictions=tf.argmax(output, axis=1))
         tf.summary.scalar('accuracy', accuracy_op)
 
@@ -170,15 +174,17 @@ def train():
                 # train batch data
                 batch_image, batch_labels = sess.run(next_element)
             except OutOfRangeError:
-                print('训练结束: 一共step：{}, 用时: {}'.format(step,
+                print('训练结束: 一共step：{}, 用时: {}'.format(_global_step,
                                                        datetime.datetime.now() - start_time))
                 break
 
-            _, _loss, _accuracy, _summary = sess.run([train_op, loss, accuracy_op, merged],
-                                                     feed_dict={tf_images: batch_image,
-                                                                tf_labels: batch_labels,
-                                                                keep_prob: 0.9})
-            if step % 100 == 0:
+            _, _loss, _accuracy, _summary, _global_step = sess.run([train_op, loss,
+                                                                    accuracy_op, merged,
+                                                                    global_step],
+                                                                   feed_dict={tf_images: batch_image,
+                                                                              tf_labels: batch_labels,
+                                                                              keep_prob: 0.9})
+            if _global_step % 100 == 0:
                 batch_image_test, batch_labels_test = sess.run(next_element_test)
                 _accuracy_test, _lr = sess.run([accuracy_op, LR_decay_op],
                                                feed_dict={
@@ -191,16 +197,16 @@ def train():
                 step: {}, lr: {}
                 train_loss: {}, train_accuracy: {}
                 test_accuracy: {}
-                '''.format(step, _lr, _loss, _accuracy, _accuracy_test))
+                '''.format(_global_step, _lr, _loss, _accuracy, _accuracy_test))
                 # summary
-                writer.add_summary(_summary, step)
+                writer.add_summary(_summary, _global_step)
                 # save
-                if _accuracy_test > 0.5:
-                    saver.save(sess, './save/', global_step=step)
-            step += 1
+                if _accuracy_test > 0.4:
+                    saver.save(sess, './save/', global_step=global_step)
+            # step += 1
 
 
-def predict(images):
+def predict(images, test_labels=None, is_plt=False):
     print('开始预测')
     labels = generate_data.unpickle('data/batches.meta')[b'label_names']
     print(labels)
@@ -209,25 +215,34 @@ def predict(images):
     # 恢复session
     saver = tf.train.Saver()
     with tf.Session() as sess:
+        init_op = tf.group(tf.local_variables_initializer(), tf.global_variables_initializer())
+        sess.run(init_op)
         saver.restore(sess, tf.train.latest_checkpoint('./save/'))
         predicts = sess.run(output, feed_dict={
             tf_images: images,
             keep_prob: 1
         })
-        predict_map = zip(images, predicts)
-        count = len(images)
-        if count > 2:
-            col_num = round(count // 2)
-            fig, ax = plt.subplots(2, col_num)
-            index = 0
-            for img, pred in predict_map:
-                fig_sub = ax[index // col_num, index % col_num]
-                fig_sub.imshow(img)
-                fig_sub.set_title(labels[np.argmax(pred)])
-                index += 1
-            plt.show()
+        if is_plt:
+            predict_map = zip(images, predicts)
+            count = len(images)
+            if count > 2:
+                col_num = round(count // 2)
+                fig, ax = plt.subplots(2, col_num)
+                index = 0
+                for img, pred in predict_map:
+                    if labels:
+                        label = labels[np.argmax(test_labels[index])]
+                    else:
+                        label = ''
+                    fig_sub = ax[index // col_num, index % col_num]
+                    fig_sub.imshow(img)
+                    fig_sub.set_title('{}-{}'.format(labels[np.argmax(pred)], label))
+                    index += 1
+                plt.show()
+            else:
+                print(labels[np.argmax(predicts[0])])
         else:
-            print(labels[np.argmax(predicts[0])])
+            return predicts
 
 
 def random_predict(num=6):
@@ -237,14 +252,18 @@ def random_predict(num=6):
     choice_imgs = test_images[indexes]
     choice_labels = test_lables[indexes]
 
-    predict(choice_imgs)
+    results = predict(choice_imgs, choice_labels, is_plt=FLAGS.is_plt)
+    accuracy = np.equal(np.argmax(results, axis=1), np.argmax(choice_labels, axis=1))
+    # print(accuracy)
+    accuracy = np.sum(accuracy) * 100.0 / num
+    print(accuracy)
 
 
 def main(_):
     if FLAGS.is_train:
         train()
     else:
-        random_predict()
+        random_predict(FLAGS.predict_num)
 
 
 if __name__ == '__main__':
