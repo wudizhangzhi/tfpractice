@@ -33,7 +33,7 @@ FLAGS = flags.FLAGS
 
 # placeholder
 tf_images = tf.placeholder(tf.float32, (None, FLAGS.width, FLAGS.height, FLAGS.channel))
-tf_labels = tf.placeholder(tf.int8, (None, 1))
+tf_labels = tf.placeholder(tf.int32, (None,))
 keep_prob = tf.placeholder(dtype=tf.float32, name='keep_prob')
 
 

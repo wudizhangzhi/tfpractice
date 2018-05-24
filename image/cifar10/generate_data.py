@@ -52,12 +52,14 @@ def produce_data(filelist, testfilename, label_name_file=None):
     images_list = []
     for filename in filelist:
         batch_images, one_hot_lables = produce_one_file(filename)
-        labels_list.append(one_hot_lables)
+        # labels_list.append(one_hot_lables)
+        labels_list.extend(one_hot_lables)
         batch_images = handler_images_data(batch_images)
         images_list.append(batch_images)
 
     images = np.vstack(images_list)
-    labels = np.vstack(labels_list)
+    # labels = np.vstack(labels_list)
+    labels = labels_list
     # self.data_set = tf.contrib.data.Dataset.zip(dataset_list)
     data_set = tf.data.Dataset.from_tensor_slices((images, labels))
 
