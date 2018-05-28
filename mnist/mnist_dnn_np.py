@@ -12,10 +12,14 @@ def solfmax(x):
     return np.exp(x) / np.sum(np.exp(x))
 
 
+def sigmod(x):
+    return (1 + np.exp(-x)) ** -1
+
+
 def inference(images):
     images_reshaped = images.reshape((-1, np.prod(images.shape[1:])))
 
-    w_1 = np.random.standard_normal((images.shape[1], 1024))
+    w_1 = np.random.standard_normal((images_reshaped.shape[1], 1024))
     b_1 = np.zeros_like((images.shape[0],))
     dense_1 = np.add(np.matmul(images, w_1), b_1)
     # relu
@@ -35,11 +39,35 @@ def inference(images):
     return logits
 
 
-def train(logits, labels):
+def predict(features, weights):
+    return
+
+
+def update_weight(features, labels, weights, lr):
+    """
+    :param features: [batch_size, units]
+    :param labels: [batch_size, classes]
+    :param weights: [units, classes]
+    :param lr: learning rate
+    :return:
+    """
+    predicts = predict(features, weights)  # [batch_size, classes]
+    gradient = np.dot(features.T, predicts - labels)  # [units, batch_size] * [batch_size, classes]
+
+    gradient /= len(features)
+
+    gradient *= lr
+
+    weights -= gradient
+    return weights
+
+
+def train(features, labels, iters):
+    logistic = inference(features)
     # loss
-    loss = - np.mean(np.add(np.dot(labels, np.log(logits)), np.dot(1 - labels, np.log(1 - logits))))
+    loss = - np.mean(np.add(np.dot(labels, np.log(logistic)), np.dot(1 - labels, np.log(1 - logistic))))
     # gradient
-    
+
     # train_op
 
     pass
