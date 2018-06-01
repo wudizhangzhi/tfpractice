@@ -125,3 +125,4 @@ save
 data
 *.tgz
 *.jpg
+cifar-10-batches-bin
