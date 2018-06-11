@@ -44,7 +44,7 @@ def read_cifar10(filename_queue):
 
     record_bytes = tf.decode_raw(value, tf.int8)
 
-    result.label = tf.cast(tf.strided_slice(record_bytes, [0], [label_byte]))
+    result.label = tf.cast(tf.strided_slice(record_bytes, [0], [label_byte]), tf.int8)
     deph_major = tf.reshape(
         tf.strided_slice(record_bytes, [label_byte], [label_byte + image_bytes]),
         [result.depth, result.height, result.width]
@@ -65,7 +65,7 @@ def distorted_inputs(data_dir, batch_size):
     filename_queue = tf.train.string_input_producer(filenames)
     with tf.name_scope('data_augmentation'):
         read_input = read_cifar10(filename_queue)
-        reshaped_image = tf.cast(read_input.uint8image, tf.float32)
+        reshaped_image = tf.cast(read_input.unit8image, tf.float32)
 
         # 一些随机性的处理
         height = IMAGE_SIZE

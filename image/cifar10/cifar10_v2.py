@@ -1,7 +1,12 @@
+import datetime
+
 import numpy as np
 import tensorflow as tf
 import os
-import generate_data
+
+import time
+
+import cifar10_input
 
 flags = tf.app.flags
 # string
@@ -23,6 +28,8 @@ flags.DEFINE_float('keep_prob', 0.75, '保留率')
 # boolean
 flags.DEFINE_boolean('is_train', True, '是否是训练')
 flags.DEFINE_boolean('is_plt', False, '是否显示图表')
+flags.DEFINE_boolean('log_device_placement', False,
+                     """Whether to log device placement.""")
 FLAGS = flags.FLAGS
 
 
@@ -80,7 +87,7 @@ def inference(images):
 
     # local3
     with tf.name_scope('Local3'):
-        pool2_flatten = tf.reshape(pool2, (pool2.shape().get_list()[0], -1))
+        pool2_flatten = tf.reshape(pool2, (pool2.shape[0], -1))
         local3 = tf.layers.dense(
             pool2_flatten,
             units=384,
@@ -122,5 +129,57 @@ def loss(logits, labels):
 
 
 def train(loss, global_step):
-    with tf.name_scope('Train'):
-        tf.train.AdamOptimizer().minimize(loss)
+    train_op = tf.train.AdamOptimizer(FLAGS.lr).minimize(loss)
+
+    class _LoggerHook(tf.train.SessionRunHook):
+        def begin(self):
+            self._step = -1
+            self._start_time = int(time.time())
+
+        def before_run(self, run_context):
+            self._step += 1
+            return tf.train.SessionRunArgs(loss)
+
+        def after_run(self,
+                      run_context,  # pylint: disable=unused-argument
+                      run_values):
+            if self._step % 100 == 0:
+                current_time = int(time.time())
+                duration = current_time - self._start_time
+                self._start_time = current_time
+
+                _loss = run_values.results
+                example_per_sec = float(100 / duration)
+
+                format_str = '%s: step: %d, loss: %0.2f (%0.1f example/sec)'
+
+                print(format_str % (datetime.datetime.now(),
+                                    self._step,
+                                    _loss,
+                                    example_per_sec
+                                    ))
+
+    init_op = tf.global_variables_initializer()
+    with tf.train.MonitoredTrainingSession(
+            checkpoint_dir='save',
+            hooks=[tf.train.StopAtStepHook(last_step=FLAGS.train_step),
+                   tf.train.NanTensorHook(loss),
+                   _LoggerHook()],
+            config=tf.ConfigProto(
+                log_device_placement=FLAGS.log_device_placement)) as mon_sess:
+        mon_sess.run(init_op)
+        while not mon_sess.should_stop():
+            mon_sess.run(train_op)
+
+
+def main(_):
+    if FLAGS.is_train:
+        global_step = tf.train.get_or_create_global_step()
+        images, labels = cifar10_input.distorted_inputs('cifar-10-batches-bin', 100)
+        logits = inference(images)
+        _loss = loss(logits, labels)
+        train(_loss, global_step)
+
+
+if __name__ == '__main__':
+    tf.app.run()
