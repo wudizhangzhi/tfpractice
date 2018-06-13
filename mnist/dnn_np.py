@@ -7,11 +7,6 @@ use np build a simple model to compute y = 3.5x + 2
 LR = 0.1
 
 
-class Neuron:
-    def __init__(self):
-        pass
-
-
 class FCLayer(object):
     """
     全连接
@@ -66,6 +61,7 @@ def train(params=1, maxstep=1000, batch_size=32):
     fc2_weight_list = []
     fc1_weight_list = []
 
+    # 建立模型
     fc1 = FCLayer(params, 5)
     fc2 = FCLayer(5, 1)
 
@@ -74,10 +70,12 @@ def train(params=1, maxstep=1000, batch_size=32):
 
     step = 0
     while step < maxstep:
+        # 生成训练数据
         inputs, labels = generate_data(batch_size)
+        # forward propagation
         fc1_output = fc1.feed_forward(inputs)
         fc2_output = fc2.feed_forward(fc1_output)
-
+        # 误差
         loss = compute_loss(fc2_output, labels)
 
         # 最后一层的delta
@@ -103,9 +101,10 @@ def train(params=1, maxstep=1000, batch_size=32):
         step += 1
 
     # test
+    test_data, test_label = generate_data(100)
+    results = predict(test_data)
+    print('正确率: %0.2f' % compute_accuracy(results, test_label))
 
-    result = predict(np.array([[0.2], [0.8]]))
-    print(result)
 
     # plot weight
     fig = plt.figure()
@@ -121,7 +120,7 @@ def train(params=1, maxstep=1000, batch_size=32):
 
 
 def main():
-    train(maxstep=10000, batch_size=10)
+    train(maxstep=1000, batch_size=10)
 
 
 if __name__ == '__main__':
