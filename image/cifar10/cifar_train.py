@@ -170,10 +170,9 @@ def train():
 
     merged = tf.summary.merge_all()
 
-    writer = tf.summary.FileWriter('./log')
-    saver = tf.train.Saver()
-
     with tf.Session() as sess:
+        writer = tf.summary.FileWriter('./log', sess.graph)
+        saver = tf.train.Saver()
         start_time = datetime.datetime.now()
         sess.run(init_op)
         # Initialize an iterator over a dataset with 10 elements.

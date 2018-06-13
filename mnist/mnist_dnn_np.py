@@ -8,6 +8,12 @@ import numpy as np
 import tensorflow as tf
 
 
+class FullConnectLayer(object):
+    def __init__(self, inputs, units):
+        self._inputs = inputs
+        self._units = units
+
+
 def solfmax(x):
     return np.exp(x) / np.sum(np.exp(x))
 
@@ -51,6 +57,7 @@ def update_weight(features, labels, weights, lr):
     :param lr: learning rate
     :return:
     """
+    # TODO 最后一层
     predicts = predict(features, weights)  # [batch_size, classes]
     gradient = np.dot(features.T, predicts - labels)  # [units, batch_size] * [batch_size, classes]
 
