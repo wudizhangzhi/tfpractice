@@ -87,7 +87,7 @@ def inference(images):
 
     # local3
     with tf.name_scope('Local3'):
-        pool2_flatten = tf.reshape(pool2, (pool2.shape[0], -1))
+        pool2_flatten = tf.reshape(pool2, (pool2.get_shape().as_list()[0], -1))
         local3 = tf.layers.dense(
             pool2_flatten,
             units=384,
@@ -166,7 +166,7 @@ def train(loss, global_step):
                    tf.train.NanTensorHook(loss),
                    _LoggerHook()],
             config=tf.ConfigProto(
-                log_device_placement=FLAGS.log_device_placement)) as mon_sess:
+                log_device_placement=False)) as mon_sess:
         mon_sess.run(init_op)
         while not mon_sess.should_stop():
             mon_sess.run(train_op)
