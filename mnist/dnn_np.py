@@ -36,10 +36,12 @@ class FCLayer(object):
         return self.out * (1 - self.out)
 
 
-def generate_data(batch_size=36):
-    x = np.random.random_sample((batch_size, 1))
-    # y = 3.5 * x + 2
-    y = np.where(x > 0.5, 1, 0)
+def generate_data(params=1, batch_size=36):
+    x = np.random.uniform(-1, 1, (batch_size, params))
+    if params == 1:
+        y = np.where(x > 0.5, 1, 0)
+    else:
+        y = np.where(np.sum(x ** 2, 1) > 0.5, 1, 0).reshape((batch_size, 1))
     return x, y
 
 
@@ -71,7 +73,7 @@ def train(params=1, maxstep=1000, batch_size=32):
     step = 0
     while step < maxstep:
         # 生成训练数据
-        inputs, labels = generate_data(batch_size)
+        inputs, labels = generate_data(params, batch_size)
         # forward propagation
         fc1_output = fc1.feed_forward(inputs)
         fc2_output = fc2.feed_forward(fc1_output)
@@ -101,26 +103,34 @@ def train(params=1, maxstep=1000, batch_size=32):
         step += 1
 
     # test
-    test_data, test_label = generate_data(100)
+    test_data, test_label = generate_data(params, 100)
     results = predict(test_data)
     print('正确率: %0.2f' % compute_accuracy(results, test_label))
 
+    # plot 散点图
+    if params > 1:
+        positive_indexes = results > 0.5
+        negative_indexes = results <= 0.5
+        plt.plot(test_data[positive_indexes.flatten(), 0], test_data[positive_indexes.flatten(), 1], 'ro')
+        plt.plot(test_data[negative_indexes.flatten(), 0], test_data[negative_indexes.flatten(), 1], 'bx')
+        plt.axis([-1, 1, -1, 1])
+        plt.show()
+    else:
+        # plot weight
+        fig = plt.figure()
+        fig.subplots_adjust(top=0.8)
+        ax1 = fig.add_subplot(211)
+        ax1.set_ylabel('percent')
+        ax1.set_title('accuracy')
+        ax1.plot(np.arange(len(accuracy_list)), accuracy_list, color='blue', lw=2)
 
-    # plot weight
-    fig = plt.figure()
-    fig.subplots_adjust(top=0.8)
-    ax1 = fig.add_subplot(211)
-    ax1.set_ylabel('percent')
-    ax1.set_title('accuracy')
-    ax1.plot(np.arange(len(accuracy_list)), accuracy_list, color='blue', lw=2)
-
-    ax2 = fig.add_axes([0.15, 0.1, 0.7, 0.3])
-    ax2.plot(np.arange(len(loss_list)), loss_list, color='yellow', lw=2)
-    plt.show()
+        ax2 = fig.add_axes([0.15, 0.1, 0.7, 0.3])
+        ax2.plot(np.arange(len(loss_list)), loss_list, color='yellow', lw=2)
+        plt.show()
 
 
 def main():
-    train(maxstep=1000, batch_size=10)
+    train(params=2, maxstep=1000, batch_size=10)
 
 
 if __name__ == '__main__':
