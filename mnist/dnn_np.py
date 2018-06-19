@@ -31,6 +31,9 @@ class FCLayer(object):
         """
         return 1 / (1 + np.exp(-x))
 
+    def softmax(self, x):
+        return np.exp(x) / np.sum(np.exp(x))
+
     def d_out_wrt_net(self):
         # ∂oᵢ/∂netᵢ
         return self.out * (1 - self.out)
@@ -42,6 +45,11 @@ def generate_data(params=1, batch_size=36):
         y = np.where(x > 0.5, 1, 0)
     else:
         y = np.where(np.sum(x ** 2, 1) > 0.5, 1, 0).reshape((batch_size, 1))
+        # TODO
+        one_hot_label = np.zeros((batch_size, 2))
+        for i in range(one_hot_label.shape[0]):
+            one_hot_label[i][y[i]] = 1
+        return x, one_hot_label
     return x, y
 
 
@@ -49,11 +57,11 @@ def compute_loss(predictions, labels):
     """
     使用l2 loss
     """
-    return np.sum(np.power(labels - predictions, 2) / 2)
+    return np.sum(np.power(np.argmax(labels, 1) - np.argmax(predictions, 1), 2) / 2)
 
 
 def compute_accuracy(preditions, labels):
-    return np.abs(np.sum(np.equal(np.where(preditions > 0.5, 1, 0), labels)) / len(preditions) * 100)
+    return np.abs(np.sum(np.equal(np.argmax(preditions, 1), np.argmax(labels, 1))) / len(preditions) * 100)
 
 
 def train(params=1, maxstep=1000, batch_size=32):
@@ -65,7 +73,7 @@ def train(params=1, maxstep=1000, batch_size=32):
 
     # 建立模型
     fc1 = FCLayer(params, 5)
-    fc2 = FCLayer(5, 1)
+    fc2 = FCLayer(5, 2)
 
     def predict(input):
         return fc2.feed_forward(fc1.feed_forward(input))
@@ -84,7 +92,7 @@ def train(params=1, maxstep=1000, batch_size=32):
         delta_out = (fc2_output - labels) * fc2_output * (1 - fc2_output)  # [batch_size, out]
         # 隐藏层的delta
         # [batch_size, out] * [unit_1, out].T
-        delta_hidden = np.dot(delta_out, fc2.weight.T) * fc2_output * (1 - fc2_output)  # [batch_size, unit_1]
+        delta_hidden = np.dot(delta_out, fc2.weight.T) * fc1_output * (1 - fc1_output)  # [batch_size, unit_1]
 
         # 更新参数，weight
         # [unit_1, out] = [batch_size, unit_1].T * [batch_size, out]
@@ -103,17 +111,17 @@ def train(params=1, maxstep=1000, batch_size=32):
         step += 1
 
     # test
-    test_data, test_label = generate_data(params, 100)
+    test_data, test_label = generate_data(params, 1000)
     results = predict(test_data)
     print('正确率: %0.2f' % compute_accuracy(results, test_label))
 
     # plot 散点图
     if params > 1:
-        positive_indexes = results > 0.5
-        negative_indexes = results <= 0.5
-        plt.plot(test_data[positive_indexes.flatten(), 0], test_data[positive_indexes.flatten(), 1], 'ro')
-        plt.plot(test_data[negative_indexes.flatten(), 0], test_data[negative_indexes.flatten(), 1], 'bx')
-        plt.axis([-1, 1, -1, 1])
+        positive_indexes = np.where(np.argmax(results, 1) == 0)
+        negative_indexes = np.where(np.argmax(results, 1) == 1)
+        plt.plot(test_data[positive_indexes, 0], test_data[positive_indexes, 1], 'ro')
+        plt.plot(test_data[negative_indexes, 0], test_data[negative_indexes, 1], 'bx')
+        plt.axis([-1.2, 1.2, -1.2, 1.2])
         plt.show()
     else:
         # plot weight
@@ -135,7 +143,8 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # inputs, labels = generate_data(2)
+    # inputs, labels = generate_data(2, batch_size=100)
+    # print(np.argmax(labels, 1))
     # print(inputs)
     # print(labels)
     # print(compute_accuracy(inputs, labels))
