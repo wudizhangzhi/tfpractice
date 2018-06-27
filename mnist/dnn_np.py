@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 """
 use np build a simple model to compute y = 3.5x + 2
 """
-LR = 0.1
+LR = 0.01
 
 
 class FCLayer(object):
@@ -57,7 +57,8 @@ def compute_loss(predictions, labels):
     """
     使用l2 loss
     """
-    return np.sum(np.power(np.argmax(labels, 1) - np.argmax(predictions, 1), 2) / 2)
+    # return np.sum(np.power(np.argmax(labels, 1) - np.argmax(predictions, 1), 2) / 2)
+    return np.sum(np.power(labels - predictions, 2) / 2)
 
 
 def compute_accuracy(preditions, labels):
@@ -111,7 +112,7 @@ def train(params=1, maxstep=1000, batch_size=32):
         step += 1
 
     # test
-    test_data, test_label = generate_data(params, 1000)
+    test_data, test_label = generate_data(params, 100)
     results = predict(test_data)
     print('正确率: %0.2f' % compute_accuracy(results, test_label))
 
@@ -119,6 +120,7 @@ def train(params=1, maxstep=1000, batch_size=32):
     if params > 1:
         positive_indexes = np.where(np.argmax(results, 1) == 0)
         negative_indexes = np.where(np.argmax(results, 1) == 1)
+        print(positive_indexes, negative_indexes)
         plt.plot(test_data[positive_indexes, 0], test_data[positive_indexes, 1], 'ro')
         plt.plot(test_data[negative_indexes, 0], test_data[negative_indexes, 1], 'bx')
         plt.axis([-1.2, 1.2, -1.2, 1.2])
