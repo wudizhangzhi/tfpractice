@@ -1,5 +1,6 @@
 import tensorflow as tf
 import os
+import numpy as np
 
 IMAGE_SIZE = 28
 NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN = 50000
@@ -54,8 +55,11 @@ def read_cifar10(filename_queue):
     return result
 
 
-def distorted_inputs(data_dir, batch_size):
-    filenames = [os.path.join(data_dir, 'data_batch_%d.bin' % i)
+def distorted_inputs(data_dir, batch_size, is_validdata=False):
+    if is_validdata:
+        filenames = [os.path.join(data_dir, 'test_batch.bin')]
+    else:
+        filenames = [os.path.join(data_dir, 'data_batch_%d.bin' % i)
                  for i in range(1, 6)]
     for f in filenames:
         if not tf.gfile.Exists(f):

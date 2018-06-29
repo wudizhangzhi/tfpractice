@@ -51,13 +51,13 @@ def _reduce_kernel_size_for_small_input(input_tensor, kernel_size):
     """
     如果input_tensor有dimension未知，则默认他足够大
     """
-    tensor_shape = input_tensor.get_shape().as_lsit()
-    if tensor_shape[0] is None or tensor_shape[1] is None:
+    tensor_shape = input_tensor.get_shape().as_list()
+    if tensor_shape[1] is None or tensor_shape[2] is None:
         kernel_size_out = kernel_size
     else:
         kernel_size_out = [
-            min(tensor_shape[0], kernel_size[0]),
-            min(tensor_shape[1], kernel_size[1])
+            min(tensor_shape[1], kernel_size[0]),
+            min(tensor_shape[2], kernel_size[1])
         ]
     return kernel_size_out
 
@@ -166,8 +166,8 @@ def mobilenet_v1_base(inputs,
                     end_point = end_point_base + '_pointwise'
                     net = slim.conv2d(
                         net,
-                        num_ouputs=depth(conv_def.depth),
-                        kernel=[1, 1],
+                        num_outputs=depth(conv_def.depth),
+                        kernel_size=[1, 1],
                         normalizer_fn=slim.batch_norm,
                         scope=end_point,
                     )
@@ -212,7 +212,7 @@ def mobilenet_v1(inputs,
                     end_points['global_pool'] = net
                 else:
                     kernel_size = _reduce_kernel_size_for_small_input(net, [7, 7])
-                    net = slim.avg_pool(
+                    net = slim.avg_pool2d(
                         net,
                         kernel_size=kernel_size,
                         stride=1,
@@ -221,22 +221,24 @@ def mobilenet_v1(inputs,
                     )
                     end_points['AvgPool_1a'] = net
 
-                if num_classes:
+                if not num_classes:
                     return net, end_points
 
                 # 1 x 1 x 1024
                 net = slim.dropout(net, keep_prob=dropout_keep_prob, scope='Dropout_1b')
                 logits = slim.conv2d(net, num_classes, [1, 1], activation_fn=None, normalizer_fn=None,
                                      scope='Conv2d_1c_1x1')
-
+                print('net size: %s' % logits.get_shape())
                 if spatial_squeeze:
+                    print('squeeze!!!!')
                     logits = tf.squeeze(logits, [1, 2], name='SpatialSqueeze')
+                    print('net size: %s' % logits.get_shape())
 
             end_points['Logits'] = logits
             if prediction_fn:
                 end_points['Predictions'] = prediction_fn(logits, scope='Predictions')
 
-    return net, end_points
+    return logits, end_points
 
 
 def mobilenet_v1_arg_scope(is_training=True,
@@ -279,5 +281,5 @@ def mobilenet_v1_arg_scope(is_training=True,
         with slim.arg_scope([slim.batch_norm], **batch_norm_params):
             with slim.arg_scope([slim.conv2d], weights_regularizer=regularizer):
                 with slim.arg_scope([slim.separable_conv2d],
-                                    weight_regularizer=depthwise_regularizer) as sc:
+                                    weights_regularizer=depthwise_regularizer) as sc:
                     return sc

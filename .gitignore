@@ -126,3 +126,4 @@ data
 *.tgz
 *.jpg
 cifar-10-batches-bin
+*.tar

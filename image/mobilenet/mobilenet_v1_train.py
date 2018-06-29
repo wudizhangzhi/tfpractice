@@ -6,6 +6,11 @@
 
 import tensorflow as tf
 import mobilenet_v1
+import sys
+
+# TODO
+sys.path.append('/Users/zhangzhichao/github/tfpractice/image')
+from cifar10 import cifar10_input
 
 slim = tf.contrib.slim
 
@@ -23,6 +28,7 @@ flags.DEFINE_integer('save_summaries_secs', 100,
 flags.DEFINE_integer('save_interval_secs', 100,
                      'How often to save checkpoints, secs')
 # string
+flags.DEFINE_string('master', '', 'Session master')
 flags.DEFINE_string('fine_tune_checkpoint', '',
                     'Checkpoint from which to start finetuning.')
 flags.DEFINE_string('dataset_dir', '../data',
@@ -97,8 +103,8 @@ def build_model():
     print('build model')
     g = tf.Graph()
     with g.as_default(), tf.device(tf.train.replica_device_setter(FLAGS.ps_tasks)):
-        inputs, labels = imagenet_input(is_training=True)
-
+        # inputs, labels = imagenet_input(is_training=True)
+        inputs, labels = cifar10_input.distorted_inputs('../cifar10/cifar-10-batches-bin', 100)
         with slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=True)):
             print('default layers')
             logits, _ = mobilenet_v1.mobilenet_v1(
@@ -109,7 +115,8 @@ def build_model():
             )
 
         print('start train')
-        slim.losses.softmax_cross_entropy(labels, logits)
+        one_hot_labels = tf.one_hot(tf.cast(labels, dtype=tf.uint8), FLAGS.num_classes, dtype=tf.float32)
+        slim.losses.softmax_cross_entropy(one_hot_labels, logits)
         if FLAGS.quantize:
             tf.contrib.quantize.create_training_graph(quant_delay=get_quant_delay())
 
@@ -134,8 +141,8 @@ def build_model():
             optimizer=opt
         )
 
-    slim.summaries.add_scallar_summary(total_loss, 'total_loss', 'losses')
-    slim.summaries.add_scallar_summary(learning_rate, 'learning_rate', 'traing')
+    slim.summaries.add_scalar_summary(total_loss, 'total_loss', 'losses')
+    slim.summaries.add_scalar_summary(learning_rate, 'learning_rate', 'traing')
     return g, train_tensor
 
 
@@ -153,27 +160,97 @@ def get_checkpoint_init_fn():
         def init_fn(sess):
             slim_init_fn(sess)
             sess.run(global_step_reset)
+
         return init_fn
     else:
         return None
 
-def main(_):
-    g, train_tensor = build_model()
 
-    with g.as_default():
-        slim.learning.train(
-            train_tensor,
-            FLAGS.checkpoint_dir,
-            is_chief=(FLAGS.task == 0),
-            master=FLAGS.master,
-            log_every_n_steps=FLAGS.log_every_n_steps,
-            graph=g,
-            number_of_steps=FLAGS.number_of_steps,
-            save_summaries_secs=FLAGS.save_summaries_secs,
-            save_interval_secs=FLAGS.save_interval_secs,
-            init_fn=get_checkpoint_init_fn(),
-            global_step=tf.train.get_global_step()
+def debug():
+    g = tf.Graph()
+    inputs = tf.placeholder(shape=[None, 28, 28, 3], dtype=tf.float32)
+    labels = tf.placeholder(shape=[None, ], dtype=tf.float32)
+    with g.as_default(), tf.device(tf.train.replica_device_setter(FLAGS.ps_tasks)):
+        # inputs, labels = imagenet_input(is_training=True)
+        tf_inputs, tf_labels = cifar10_input.distorted_inputs('../cifar10/cifar-10-batches-bin', 100)
+        with slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=True)):
+            logits, _ = mobilenet_v1.mobilenet_v1(
+                inputs,
+                is_training=True,
+                depth_multiplier=FLAGS.depth_multiplier,
+                num_classes=FLAGS.num_classes,
+            )
+
+        one_hot_labels = tf.one_hot(tf.cast(labels, dtype=tf.uint8), FLAGS.num_classes, dtype=tf.float32)
+        slim.losses.softmax_cross_entropy(one_hot_labels, logits)
+        if FLAGS.quantize:
+            tf.contrib.quantize.create_training_graph(quant_delay=get_quant_delay())
+
+        total_loss = tf.losses.get_total_loss(name='total_loss')
+        # configure the learning rate using an exponential decay
+        num_epochs_per_decay = 2.5
+        imagenet_size = 1271167
+        decay_steps = int(imagenet_size / FLAGS.batch_size * num_epochs_per_decay)
+
+        learning_rate = tf.train.exponential_decay(
+            get_learning_rate(),
+            tf.train.get_or_create_global_step(),
+            decay_steps,
+            _LEARNING_RATE_DECAY_FACTOR,
+            staircase=True
         )
+
+        opt = tf.train.GradientDescentOptimizer(learning_rate)
+
+        train_tensor = slim.learning.create_train_op(
+            total_loss,
+            optimizer=opt
+        )
+
+    slim.summaries.add_scalar_summary(total_loss, 'total_loss', 'losses')
+    slim.summaries.add_scalar_summary(learning_rate, 'learning_rate', 'traing')
+
+    init_op = [tf.global_variables_initializer(), tf.local_variables_initializer()]
+
+    # accuracy
+    test_inputs, test_labels = cifar10_input.distorted_inputs('../cifar10/cifar-10-batches-bin', 1000,
+                                                              is_validdata=True)
+    accuracy = tf.metrics.accuracy(tf.argmax(logits, axis=1), test_labels)
+
+    with tf.Session(graph=g) as session:
+        session.run(init_op)
+
+        for step in range(10000):
+            _loss, _ = session.run([total_loss, train_tensor], feed_dict={
+                inputs:tf_inputs,
+                labels: tf_labels,
+            })
+            if step % 100 == 0:
+                _accuracy = session.run(accuracy, feed_dict={
+                    inputs: test_inputs,
+                    labels: test_labels
+                })
+                print('step: %d, loss: %s, accuracy: %s' % (step, _loss, _accuracy))
+
+
+def main(_):
+    debug()
+    # g, train_tensor = build_model()
+    #
+    # with g.as_default():
+    #     slim.learning.train(
+    #         train_tensor,
+    #         FLAGS.checkpoint_dir,
+    #         is_chief=(FLAGS.task == 0),
+    #         master=FLAGS.master,
+    #         log_every_n_steps=FLAGS.log_every_n_steps,
+    #         graph=g,
+    #         number_of_steps=FLAGS.number_of_steps,
+    #         save_summaries_secs=FLAGS.save_summaries_secs,
+    #         save_interval_secs=FLAGS.save_interval_secs,
+    #         init_fn=get_checkpoint_init_fn(),
+    #         global_step=tf.train.get_global_step()
+    #     )
 
 
 if __name__ == '__main__':
